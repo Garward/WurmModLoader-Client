@@ -29,7 +29,7 @@ Pairs with [WurmModLoader (server)](https://github.com/Garward/WurmModLoader). E
 
 **Bundled reference mods**
 
-- [`mods/livemap/`](mods/livemap/) — live server map rendered inside the client HUD (tile renderer, HTTP fetch, ModComm-assisted server discovery)
+- [`mods/livemap/`](mods/livemap/) — successor to Ago's livemap. Retains the client-only mode (renders the area around you from local client data) and adds a toggle for a full server-side mode: a scrollable, pannable map of the entire server, fed by the server-side livemap companion over ModComm with tile fetch over HTTP. Server discovery is automatic via `ServerInfoRegistry` — no hardcoded URL
 - [`mods/serverpacks/`](mods/serverpacks/) — server-pushed resource pack downloader. Replaces Ago's serverpacks (~50% reliability) with an event-driven version that lands closer to 100%
 - [`examples/hellomod/`](examples/hellomod/) — minimal `@SubscribeEvent` example, useful as a starter template
 
