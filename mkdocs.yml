@@ -1,0 +1,82 @@
+site_name: WurmModLoader (Client)
+site_description: Client-side modding framework for Wurm Unlimited
+site_url: https://garward.github.io/WurmModLoader-Client/
+repo_url: https://github.com/garward/WurmModLoader-Client
+repo_name: garward/WurmModLoader-Client
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: indigo
+      accent: amber
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - scheme: default
+      primary: indigo
+      accent: amber
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - navigation.indexes
+    - navigation.instant
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+  icon:
+    repo: fontawesome/brands/github
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started/index.md
+  - Guides:
+    - Lifecycle Events: guides/lifecycle-events.md
+    - Client ↔ Server Bridge: guides/client-server-bridge.md
+    - UI Layout API: guides/ui-layout.md
+    - Widening & GuiAccess: guides/widening-and-guiaccess.md
+    - Legacy Mod Compatibility: guides/legacy-mod-compat.md
+    - Troubleshooting: guides/troubleshooting.md
+  - Research:
+    - Worldmap Hook Points: research/worldmap-hook-points.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/garward/WurmModLoader-Client

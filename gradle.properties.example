@@ -1,0 +1,10 @@
+# Copy this to ~/.gradle/gradle.properties (recommended — never enters the repo)
+# OR to a local gradle.properties at this directory's root (gitignored).
+# OR set the corresponding environment variable instead.
+
+# Path to your Wurm Unlimited client install (the directory containing client.jar + common.jar).
+# Steam default on Linux:   ~/.local/share/Steam/steamapps/common/Wurm Unlimited/WurmLauncher
+# Steam default on Windows: C:/Program Files (x86)/Steam/steamapps/common/Wurm Unlimited/WurmLauncher
+wurmClientDir=/absolute/path/to/Wurm Unlimited/WurmLauncher
+
+# Equivalent environment variable: WURM_CLIENT_DIR
