@@ -1,166 +1,135 @@
 # WurmModLoader Client
 
-Modern client-side modding framework for Wurm Unlimited, mirroring the architecture of WurmModLoader Server.
+Event-driven client-side modding framework for Wurm Unlimited. A ground-up rewrite of Ago's `WurmClientModLauncher` — Gradle build, proper event bus, isolated classloaders, ModComm, and a layout-aware GUI toolkit for mods.
 
-## Overview
+Pairs with [WurmModLoader (server)](https://github.com/Garward/WurmModLoader). Each side is independent — you can use one without the other — but matched pairs unlock the full feature set (server-pushed resource packs, livemap, ModComm channels).
 
-WurmModLoader Client provides a clean, event-driven architecture for creating client-side mods. It replaces the legacy Maven-based client modlauncher with a modern Gradle build system and introduces a structured event bus pattern.
+## What's in the box
+
+**Framework**
+
+- Thread-safe event bus with `@SubscribeEvent` scanning, priority ordering, cancellation
+- 20+ bytecode patches registered through a central `PatchRegistry`, applied at class-load time via a Java agent (`ClientPatcher.premain`)
+- Isolated `URLClassLoader` per mod; two loading modes (properties-file + JAR-scan)
+- GUI access-widening: 8 Wurm client GUI classes exposed to mods without reflection gymnastics
+- ModComm client channel ported from Ago, integrated with the event bus
+- Server discovery / `ServerInfoRegistry` for mods that need to know what server they're on
+
+**Events defined (not exhaustive)**
+
+- Lifecycle — `ClientInitEvent`, `ClientWorldLoadedEvent`, `ClientTickEvent`
+- GUI input — `MouseClickEvent`, `MouseScrollEvent`, `MouseDragEvent`, `ComponentRenderEvent`
+- Movement — `ClientMovementIntentEvent`, `ClientPrePlayerUpdateEvent`, `ClientPostPlayerUpdateEvent`, `AuthoritativePlayerPositionEvent`, `ServerCorrectionReceivedEvent`
+- Combat — `ClientCombatAnimationStartEvent`, `ClientCombatAnimationEndEvent`
+- World / HUD — `ClientNpcUpdateEvent`, `MapTileReceivedEvent`, `MapDataReceivedEvent`, `WorldMapToggleRequestedEvent`, `ClientHUDInitializedEvent`, `FOVChangedEvent`
+
+**GUI toolkit for mods**
+
+`ModComponent`, `ModStackPanel`, `ModBorderPanel`, `ModImageButton`, `ModHud`, `LayoutHints`, `Alignment` — declarative layout with weights/alignment/padding, no pixel-hunting. See [`docs/guides/ui-layout.md`](docs/guides/ui-layout.md).
+
+**Bundled reference mods**
+
+- [`mods/livemap/`](mods/livemap/) — live server map rendered inside the client HUD (tile renderer, HTTP fetch, ModComm-assisted server discovery)
+- [`mods/serverpacks/`](mods/serverpacks/) — server-pushed resource pack downloader. Replaces Ago's serverpacks (~50% reliability) with an event-driven version that lands closer to 100%
+- [`examples/hellomod/`](examples/hellomod/) — minimal `@SubscribeEvent` example, useful as a starter template
+
+## Installation
+
+Install into your Wurm Unlimited client directory (the one containing `client.jar` + `common.jar`).
+
+**Linux/macOS**
+```bash
+./install-client-modloader.sh
+```
+
+**Windows**
+```cmd
+install-client-modloader.bat
+```
+
+Set `WURM_CLIENT_DIR` if your install isn't at the Steam default:
+- Windows: `C:\Program Files (x86)\Steam\steamapps\common\Wurm Unlimited\WurmLauncher`
+- Linux: `~/.local/share/Steam/steamapps/common/Wurm Unlimited/WurmLauncher`
+
+See [`INSTALLATION.md`](INSTALLATION.md) for the full walkthrough, or [`PATCHER.md`](PATCHER.md) for what the patcher does to `client.jar`.
+
+## Writing a mod
+
+A mod is a JAR containing one or more classes with `@SubscribeEvent` methods. There's a 10-minute onramp in [`docs/getting-started/index.md`](docs/getting-started/index.md); the shape looks like:
+
+```java
+public class MyMod {
+    @SubscribeEvent
+    public void onClientInit(ClientInitEvent event) {
+        System.out.println("[MyMod] client initialized");
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGH)
+    public void onMouseClick(MouseClickEvent event) {
+        // ...
+    }
+}
+```
+
+Drop the built JAR into `<WurmLauncher>/mods/` (optionally alongside a `<modname>.properties` config) and launch.
+
+## Building from source
+
+```bash
+./gradlew build                    # compile + test + jar
+./gradlew dist                     # create distribution ZIP under build/distributions
+./build-and-deploy.sh              # Linux/macOS: build + copy to your WurmLauncher
+build-and-deploy.bat               :: Windows equivalent
+```
+
+Set `wurmClientDir=/path/to/WurmLauncher` in `~/.gradle/gradle.properties` (or `WURM_CLIENT_DIR` env var). See [`gradle.properties.example`](gradle.properties.example) and [`BUILD.md`](BUILD.md).
+
+**Requirements:** Java 17 (toolchain), Gradle 8.x (via wrapper), Wurm Unlimited client JARs.
 
 ## Architecture
 
-### Module Structure
-
-- **wurmmodloader-client-api** - Public API for mod developers
-  - Event base classes and annotations
-  - Client lifecycle events
-  - Input and prediction events (planned)
-
-- **wurmmodloader-client-core** - Core implementation
-  - ProxyClientHook and ClientHook
-  - Event bus implementation
-  - Bytecode patch management
-
-- **wurmmodloader-client-patcher** - Client patcher launcher
-  - Applies bytecode patches to Wurm client
-  - Bootstraps the modloader
-
-- **wurmmodloader-client-legacy** - Compatibility layer
-  - Supports legacy Ago client mods
-  - Bridges old interfaces to new event system
-
-### Hook Architecture
-
-Following the server-side pattern:
-
 ```
-BYTECODE PATCH → ProxyClientHook.fireXyzEvent(...) → ClientHook.fireXyz(...) → EventBus.post(...)
+BYTECODE PATCH in Wurm client class
+    ↓
+ProxyClientHook.fireXyzEvent(...)      [static, ends in "Event"]
+    ↓
+ClientHook.fireXyz(...)                [instance, no "Event" suffix]
+    ↓
+EventBus.post(XyzEvent(...))
+    ↓
+@SubscribeEvent handlers in mods
 ```
 
-- **ProxyClientHook**: Static singleton with static methods ending in "Event"
-  - Called directly by bytecode patches
-  - Thread-safe singleton instance
+Modules:
 
-- **ClientHook**: Instance methods for event firing
-  - Manages event bus
-  - Registers mod listeners
+- `wurmmodloader-client-api` — public API: events, GUI toolkit, `BytecodePatch` / `PatchRegistry` interfaces, server-info types
+- `wurmmodloader-client-core` — `EventBus`, `ClientHook`/`ProxyClientHook`, `ModLoader`, `PatchManager`, `CorePatches`, all bundled bytecode patches
+- `wurmmodloader-client-patcher` — `ClientPatcher` Java agent + `WurmClientTransformer` (shadowed uber-JAR with relocated Javassist)
+- `wurmmodloader-client-legacy` — `WurmClientMod` / `Versioned` interfaces for Ago-era mods (bridge adapter is still TODO — legacy mods don't currently load as-is)
 
-## Current Status
+## Status
 
-**Version 0.1.0 - Initial Setup**
+**v0.2.0** — event bus, bytecode patching, mod loading, ModComm, and GUI access-widening are all working. Two substantive reference mods ship in the tree. Docs cover the common use cases (getting started, layout, lifecycle, client-server bridge, widening/GUI access, legacy compat, troubleshooting).
 
-✅ Completed:
-- Gradle build structure
-- Module layout (api, core, patcher, legacy)
-- Base event system (Event, SubscribeEvent, EventPriority)
-- Lifecycle events (ClientInitEvent, ClientWorldLoadedEvent, ClientTickEvent)
-- ProxyClientHook and ClientHook base classes
+**Not there yet:**
+- Legacy mod bridge — `wurmmodloader-client-legacy` currently only exposes the old `WurmClientMod` interface; no adapter yet that runs an Ago mod unmodified. Porting is straightforward in the meantime (see [`docs/guides/legacy-mod-compat.md`](docs/guides/legacy-mod-compat.md))
+- The API surface is pre-1.0 and may break between minor versions until v1.0
 
-🚧 In Progress:
-- Event bus implementation
-- Bytecode patching system
-- Client patcher launcher
+## Documentation
 
-📋 Planned:
-- Input events for prediction
-- Entity update events
-- ModComm sync channel
-- Legacy mod compatibility layer
-- Example prediction mod
-
-## Guides
-
-- [UI Layout API](docs/guides/ui-layout.md) — `ModStackPanel`, `LayoutHints`,
-  `ModImageButton`, alignment / padding / weights for sidebars and panels
-  without pixel guesswork.
-
-## Building
-
-```bash
-./gradlew build         # Linux/macOS
-gradlew.bat build       :: Windows
-```
-
-Create distribution ZIP:
-
-```bash
-./gradlew dist          # Linux/macOS
-gradlew.bat dist        :: Windows
-```
-
-> **Windows users:** every `./foo.sh` command in this repo has a `foo.bat`
-> equivalent (`build.bat`, `deploy.bat`, `build-and-deploy.bat`,
-> `install-client-modloader.bat`). Run them from `cmd.exe` or PowerShell.
-> Set `WURM_CLIENT_DIR` if your Wurm Unlimited install isn't at the Steam
-> default (`C:\Program Files (x86)\Steam\steamapps\common\Wurm Unlimited\WurmLauncher\`).
-
-## Roadmap
-
-### Phase 1: Foundation (Current)
-- [x] Gradle build system
-- [x] Module structure
-- [x] Base event classes
-- [x] Hook infrastructure
-- [ ] Event bus implementation
-- [ ] Basic bytecode patching
-
-### Phase 2: Client Lifecycle
-- [ ] Client init hooks
-- [ ] World loaded hooks
-- [ ] Game loop/tick hooks
-- [ ] Client patcher launcher
-
-### Phase 3: Prediction Support
-- [ ] Input events
-- [ ] Entity position update events
-- [ ] Client-server sync channel
-- [ ] Example prediction mod
-
-### Phase 4: Legacy Support
-- [ ] Ago mod interface compatibility
-- [ ] Legacy mod loader wrapper
-- [ ] Migration guide
-
-## Development
-
-### Requirements
-
-- Java 17 (toolchain)
-- Gradle 8.x (included via wrapper)
-- Wurm Unlimited client JARs
-
-### Project Structure
-
-```
-wurmmodloader-client/
-├── wurmmodloader-client-api/          # Public API
-│   └── src/main/java/
-│       └── com/garward/wurmmodloader/client/api/
-│           └── events/
-│               ├── base/              # Event, SubscribeEvent, EventPriority
-│               └── lifecycle/         # Client lifecycle events
-├── wurmmodloader-client-core/         # Core implementation
-│   └── src/main/java/
-│       └── com/garward/wurmmodloader/client/
-│           ├── modloader/            # ClientHook, ProxyClientHook
-│           └── bytecode/             # Patch management
-├── wurmmodloader-client-patcher/      # Patcher launcher
-└── wurmmodloader-client-legacy/       # Legacy compatibility
-```
-
-## Design Principles
-
-1. **Mirror Server Architecture**: Follow WurmModLoader Server patterns
-2. **Event-Driven**: All mod interactions through event bus
-3. **Clean Separation**: Framework vs mod logic
-4. **Legacy Compatible**: Support existing Ago mods
-5. **Performance**: Lightweight, minimal overhead
+- [`docs/getting-started/index.md`](docs/getting-started/index.md) — write your first mod
+- [`docs/guides/lifecycle-events.md`](docs/guides/lifecycle-events.md) — init / world-loaded / tick
+- [`docs/guides/ui-layout.md`](docs/guides/ui-layout.md) — `ModStackPanel`, `LayoutHints`, alignment
+- [`docs/guides/widening-and-guiaccess.md`](docs/guides/widening-and-guiaccess.md) — touching Wurm's own GUI classes
+- [`docs/guides/client-server-bridge.md`](docs/guides/client-server-bridge.md) — ModComm channels, server discovery
+- [`docs/guides/legacy-mod-compat.md`](docs/guides/legacy-mod-compat.md) — porting Ago-era mods
+- [`docs/guides/troubleshooting.md`](docs/guides/troubleshooting.md)
 
 ## License
 
-MIT License - See LICENSE file
+MIT. See [`LICENSE`](LICENSE).
 
 ## Credits
 
-- Based on Ago's WurmClientModLauncher
-- Architecture inspired by WurmModLoader Server
-- Part of the Wurm Unlimited modding ecosystem
+- [Ago (`ago1024`)](https://github.com/ago1024/WurmClientModLauncher) — original client modlauncher this project replaces; ModComm protocol and the `WurmClientMod` interface shape carry forward from his work
+- [WurmModLoader (server)](https://github.com/Garward/WurmModLoader) — sibling project; architecture and naming conventions mirror it where it makes sense

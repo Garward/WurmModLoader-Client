@@ -19,7 +19,7 @@ val wurmClientDir: String by extra(
 
 allprojects {
     group = "com.garward.wurmmodloader.client"
-    version = "0.1.0"
+    version = "0.2.0"
 
     repositories {
         mavenCentral()
@@ -94,7 +94,7 @@ subprojects {
                 pom {
                     name.set("WurmModLoader Client ${project.name}")
                     description.set("Modern client-side modding framework for Wurm Unlimited")
-                    url.set("https://github.com/garward/WurmModLoader-Client")
+                    url.set("https://github.com/Garward/WurmModLoader-Client")
 
                     licenses {
                         license {
@@ -111,9 +111,9 @@ subprojects {
                     }
 
                     scm {
-                        connection.set("scm:git:git://github.com/garward/WurmModLoader-Client.git")
+                        connection.set("scm:git:git://github.com/Garward/WurmModLoader-Client.git")
                         developerConnection.set("scm:git:ssh://github.com:garward/WurmModLoader-Client.git")
-                        url.set("https://github.com/garward/WurmModLoader-Client")
+                        url.set("https://github.com/Garward/WurmModLoader-Client")
                     }
                 }
             }
@@ -160,7 +160,7 @@ tasks.register<Zip>("dist") {
 
     // Documentation
     from(".") {
-        include("README.md", "LICENSE", "BUILD.md", "CLAUDE.md", "PATCHER.md")
+        include("README.md", "LICENSE", "BUILD.md", "PATCHER.md", "INSTALLATION.md")
         into(".")
     }
 
