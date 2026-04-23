@@ -262,6 +262,124 @@ public class ClientPatcher {
             new com.garward.wurmmodloader.client.core.bytecode.patches.HeadsUpDisplayInitPatch()
         );
 
+        // Hook-installing patches — these inject ProxyClientHook.fireXxxEvent
+        // calls into game methods. Baked into client.jar on disk because we
+        // don't run as a -javaagent; all transformations have to happen at
+        // patch time. Javassist resolves ProxyClientHook via string, so no
+        // classpath dependency at patch time.
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/options/RangeOption.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.FOVChangePatch()
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/renderer/WorldRender.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.WorldRenderPatch()
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/renderer/PickRenderer.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.PickRenderPatch()
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/renderer/cell/MobileModelRenderable.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.CellRenderableLifecyclePatch(
+                "com.wurmonline.client.renderer.cell.MobileModelRenderable")
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/renderer/cell/GroundItemCellRenderable.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.CellRenderableLifecyclePatch(
+                "com.wurmonline.client.renderer.cell.GroundItemCellRenderable")
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/renderer/cell/CellRenderable.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.CellRenderableLifecyclePatch(
+                "com.wurmonline.client.renderer.cell.CellRenderable")
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/console/WurmConsole.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.ConsoleInputPatch()
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/shared/constants/PlayerAction.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.PlayerActionNamePatch()
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/comm/SimpleServerConnectionClass.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.DeedPlanPacketPatch()
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/comm/SimpleServerConnectionClass.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.IsDevOverridePatch()
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/renderer/gui/CompassComponent.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.CompassComponentPatch()
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/renderer/gui/HeadsUpDisplay.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.WorldMapTogglePatch()
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/renderer/gui/WurmPopup.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.WurmPopupRebindPatch()
+        );
+        // Server packs — cross-pack resolution (~packname/path), findPack(),
+        // virtual packs, rawFilePath widening. Required for packs that reference
+        // textures from other packs (e.g. bdew's farmbox → ~graphics.jar/...).
+        // Resources.class and PackResourceUrl.class are pre-patched above so
+        // that findPack + rawFilePath are visible in the shared ClassPool when
+        // Pack.class's getResource patch is compiled.
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/resources/Resources.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.serverpacks.ResourcesFindPackPatch()
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/resources/PackResourceUrl.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.serverpacks.PackResourceUrlRawFilePathPatch()
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/resources/Pack.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.serverpacks.PackInitVirtualPacksPatch()
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/resources/Pack.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.serverpacks.PackGetResourceCrossPackPatch()
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/resources/PackResourceUrl.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.serverpacks.PackResourceUrlDeriveCrossPackPatch()
+        );
+
+        // Shared ClassPool so patches that reference methods/fields added by
+        // earlier patches (e.g. Pack.getResource referencing Resources.findPack)
+        // type-check against the in-flight patched CtClasses, not the vanilla
+        // jar on disk.
+        ClassPool sharedPool = new ClassPool(true);
+        String home = System.getProperty("user.home");
+        String clientJarPath = home + "/.local/share/Steam/steamapps/common/Wurm Unlimited/WurmLauncher/client.jar";
+        String commonJarPath = home + "/.local/share/Steam/steamapps/common/Wurm Unlimited/WurmLauncher/common.jar";
+        for (String p : new String[] { clientJarPath, commonJarPath }) {
+            if (new File(p).exists()) sharedPool.appendClassPath(p);
+        }
+
+        // Pre-patch entries whose changes must be visible to later patches.
+        // Resources.findPack is referenced by Pack.getResource and
+        // PackResourceUrl.derive — must be added to the pool first.
+        java.util.Map<String, byte[]> prePatched = new HashMap<>();
+        String[] preOrder = new String[] {
+            "com/wurmonline/client/resources/Resources.class",
+            "com/wurmonline/client/resources/PackResourceUrl.class",
+        };
+        try (JarFile peek = new JarFile(clientJar)) {
+            for (String preEntry : preOrder) {
+                java.util.List<BytecodePatch> ps = accessWideningPatches.get(preEntry);
+                if (ps == null) continue;
+                java.util.jar.JarEntry e = peek.getJarEntry(preEntry);
+                if (e == null) continue;
+                logger.info("  Pre-patching " + preEntry + " (" + ps.size() + " patch(es))...");
+                prePatched.put(preEntry, applyInPlace(peek.getInputStream(e), ps, sharedPool));
+            }
+        }
+
         try (JarFile inputJar = new JarFile(clientJar);
              FileOutputStream fos = new FileOutputStream(tempJar);
              java.util.jar.JarOutputStream jos = new java.util.jar.JarOutputStream(fos)) {
@@ -284,11 +402,16 @@ public class ClientPatcher {
                     patchedBytes = patchWurmClientBaseClass(inputJar.getInputStream(entry));
                     patchedClasses++;
                 }
+                // Re-use bytes from the pre-patch phase (shared ClassPool).
+                else if (prePatched.containsKey(entry.getName())) {
+                    patchedBytes = prePatched.get(entry.getName());
+                    patchedClasses++;
+                }
                 // Data-driven: bake any registered access-widening patch into the JAR.
                 else if (accessWideningPatches.containsKey(entry.getName())) {
                     java.util.List<BytecodePatch> patches = accessWideningPatches.get(entry.getName());
                     logger.info("  Patching " + entry.getName() + " (" + patches.size() + " patch(es))...");
-                    patchedBytes = applyInPlace(inputJar.getInputStream(entry), patches);
+                    patchedBytes = applyInPlace(inputJar.getInputStream(entry), patches, sharedPool);
                     patchedClasses++;
                 }
 
@@ -324,16 +447,7 @@ public class ClientPatcher {
      * against it, and returns the patched bytecode. Used to bake pure-bytecode
      * patches (no runtime hook dependencies) into client.jar on disk.
      */
-    private static byte[] applyInPlace(InputStream classBytes, java.util.List<BytecodePatch> patches) throws Exception {
-        ClassPool classPool = new ClassPool(true);
-        String home = System.getProperty("user.home");
-        String clientJarPath = home + "/.local/share/Steam/steamapps/common/Wurm Unlimited/WurmLauncher/client.jar";
-        String commonJarPath = home + "/.local/share/Steam/steamapps/common/Wurm Unlimited/WurmLauncher/common.jar";
-        for (String path : new String[] { clientJarPath, commonJarPath }) {
-            if (new File(path).exists()) {
-                classPool.appendClassPath(path);
-            }
-        }
+    private static byte[] applyInPlace(InputStream classBytes, java.util.List<BytecodePatch> patches, ClassPool classPool) throws Exception {
         CtClass ctClass = classPool.makeClass(classBytes);
         // Apply in priority order (highest first) so access-wideners run before
         // hook-installing patches that rely on visible fields/methods.

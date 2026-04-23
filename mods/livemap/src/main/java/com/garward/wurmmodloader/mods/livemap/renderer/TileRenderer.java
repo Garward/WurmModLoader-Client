@@ -224,7 +224,8 @@ public class TileRenderer {
                                int screenX, int screenY, int screenWidth, int screenHeight,
                                float viewCenterX, float viewCenterY, int zoom,
                                MapOverlayData overlay,
-                               float selfWorldX, float selfWorldY) {
+                               float selfWorldX, float selfWorldY,
+                               String selfPlayerName) {
         if (overlay == null) overlay = MapOverlayData.EMPTY;
         int maxX = screenX + screenWidth;
         int maxY = screenY + screenHeight;
@@ -260,9 +261,11 @@ public class TileRenderer {
                     px - 3.5f, py - 3.5f, 7f, 7f, 0f, 0f, 1f, 1f);
         }
 
-        // Other players — yellow (skip the self-player; drawn last)
+        // Other players — yellow. Filter self by name: server-snapshot x/y
+        // lags behind live pos.getTileX(), so coordinate-based filtering
+        // leaves a stale yellow marker trailing the red self-dot.
         for (MapOverlayData.Player p : overlay.players) {
-            if (Math.abs(p.x - selfWorldX) < 0.5f && Math.abs(p.y - selfWorldY) < 0.5f) continue;
+            if (selfPlayerName != null && selfPlayerName.equals(p.name)) continue;
             float px = worldToScreenX(p.x, viewCenterX, screenX, screenWidth, zoom);
             float py = worldToScreenY(p.y, viewCenterY, screenY, screenHeight, zoom);
             if (px < screenX || py < screenY || px > maxX || py > maxY) continue;
@@ -315,20 +318,25 @@ public class TileRenderer {
         for (MapOverlayData.Player p : overlay.players) {
             float px = worldToScreenX(p.x, viewCenterX, screenX, screenWidth, zoom);
             float py = worldToScreenY(p.y, viewCenterY, screenY, screenHeight, zoom);
-            if (within(mouseX, mouseY, px, py, 5)) return p.name;
+            if (within(mouseX, mouseY, px, py, 5)) {
+                return p.name + "\n(" + (int) p.x + ", " + (int) p.y + ")";
+            }
         }
         for (MapOverlayData.Tower tw : overlay.towers) {
             float px = worldToScreenX(tw.x, viewCenterX, screenX, screenWidth, zoom);
             float py = worldToScreenY(tw.y, viewCenterY, screenY, screenHeight, zoom);
             if (within(mouseX, mouseY, px, py, 5)) {
                 return tw.name + "\nKingdom: " + kingdomName(tw.kingdom)
-                        + "\nDamage: " + String.format("%.1f", tw.damage);
+                        + "\nDamage: " + String.format("%.1f", tw.damage)
+                        + "\n(" + (int) tw.x + ", " + (int) tw.y + ")";
             }
         }
         for (MapOverlayData.Altar a : overlay.altars) {
             float px = worldToScreenX(a.x, viewCenterX, screenX, screenWidth, zoom);
             float py = worldToScreenY(a.y, viewCenterY, screenY, screenHeight, zoom);
-            if (within(mouseX, mouseY, px, py, 6)) return a.name;
+            if (within(mouseX, mouseY, px, py, 6)) {
+                return a.name + "\n(" + (int) a.x + ", " + (int) a.y + ")";
+            }
         }
         for (MapOverlayData.Village v : overlay.villages) {
             float px = worldToScreenX(v.tokenX, viewCenterX, screenX, screenWidth, zoom);
@@ -340,6 +348,7 @@ public class TileRenderer {
                 if (!v.motto.isEmpty())  sb.append("\n\"").append(v.motto).append("\"");
                 sb.append("\nCitizens: ").append(v.citizens);
                 if (v.permanent) sb.append(" (permanent)");
+                sb.append("\n(").append((int) v.tokenX).append(", ").append((int) v.tokenY).append(")");
                 return sb.toString();
             }
         }

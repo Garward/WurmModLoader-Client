@@ -57,6 +57,11 @@ public class LiveMapClientMod {
     private boolean initialized = false;
     private String currentMapData = null;
     private final java.util.Set<String> inFlightTiles = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** Tile key -> wall-clock millis when the last fetch failed. Used to throttle retries
+     *  on genuinely missing/erroring tiles without permanently locking them out. */
+    private final java.util.concurrent.ConcurrentHashMap<String, Long> tileFailureBackoff =
+        new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long TILE_FAILURE_BACKOFF_MS = 10_000L;
 
     // Server-provided map dimensions (applied to renderers once both config + GUI exist)
     private int serverMapSize = -1;
@@ -240,17 +245,30 @@ public class LiveMapClientMod {
         }
 
         String key = zoom + "/" + tileX + "/" + tileY;
+
+        // Skip recently-failed tiles to avoid hammering the server, but only briefly —
+        // permanent lockout was the bug we're fixing here.
+        Long lastFailure = tileFailureBackoff.get(key);
+        if (lastFailure != null
+                && System.currentTimeMillis() - lastFailure < TILE_FAILURE_BACKOFF_MS) {
+            return;
+        }
+
         if (!inFlightTiles.add(key)) {
             return;
         }
 
         httpClient.fetchTileAsync(zoom, tileX, tileY, (z, x, y, tileData) -> {
-            if (tileData != null && tileData.length > 0) {
-                dataCache.cacheTile(z, x, y, tileData);
-            }
-            // Keep the key in inFlightTiles on 404 so we don't re-request every frame.
-            // On success, remove so a later cache eviction can re-fetch.
-            if (tileData != null && tileData.length > 0) {
+            try {
+                if (tileData != null && tileData.length > 0) {
+                    dataCache.cacheTile(z, x, y, tileData);
+                    tileFailureBackoff.remove(key);
+                } else {
+                    tileFailureBackoff.put(key, System.currentTimeMillis());
+                }
+            } finally {
+                // Always clear the in-flight flag so a future request (after backoff,
+                // cache eviction, or terrain change) can actually be issued.
                 inFlightTiles.remove(key);
             }
         });

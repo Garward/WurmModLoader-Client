@@ -1,209 +1,184 @@
 package com.garward.mods.serverpacks;
 
 import com.garward.wurmmodloader.client.api.events.base.SubscribeEvent;
-import com.garward.wurmmodloader.client.api.events.serverpacks.ServerPackReceivedEvent;
+import com.garward.wurmmodloader.client.api.events.client.ClientConsoleInputEvent;
+import com.garward.wurmmodloader.client.api.events.lifecycle.ClientInitEvent;
+import com.garward.wurmmodloader.client.api.events.lifecycle.ClientTickEvent;
+import com.garward.wurmmodloader.client.api.events.map.ClientHUDInitializedEvent;
+import com.wurmonline.client.renderer.gui.HeadsUpDisplay;
+import com.garward.wurmmodloader.client.modcomm.Channel;
+import com.garward.wurmmodloader.client.modcomm.IChannelListener;
+import com.garward.wurmmodloader.client.modcomm.ModComm;
+import com.garward.wurmmodloader.client.modcomm.PacketReader;
+import com.garward.wurmmodloader.client.modcomm.PacketWriter;
 
-import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Modern event-driven server packs client mod.
+ * Client-side serverpacks mod — protocol-compatible with Ago-hosted servers.
  *
- * <p>This mod replaces the old reflection-heavy implementation with a clean event-based
- * architecture. It subscribes to ServerPackReceivedEvent which is fired when the server
- * sends pack information via ModComm.
+ * <p>Registers the legacy {@code "ago.serverpacks"} ModComm channel using the
+ * same wire format upstream tyoda/ago1024 servers send:
+ * <pre>
+ *   int n;
+ *   for n:  UTF packId;  UTF uri;
+ * </pre>
  *
- * <p><b>How it works:</b>
- * <ol>
- *   <li>Server sends pack ID + URI via ModComm "ago.serverpacks" channel</li>
- *   <li>ModComm handler fires ServerPackReceivedEvent</li>
- *   <li>This mod receives event via @SubscribeEvent</li>
- *   <li>Downloads pack in background thread</li>
- *   <li>Installs pack to packs/ directory on main thread</li>
- *   <li>Reloads resources and notifies server</li>
- * </ol>
- *
- * @since 0.2.0
+ * <p>Pack installation (JarPack construction + splice into {@code Resources.packs}
+ * + resolved/unresolved flush) is done via direct reflection against the vanilla
+ * client, mirroring the approach in {@code org.gotti.wurmunlimited.modsupport.packs.ModPacks}
+ * without taking a dependency on the legacy launcher's modsupport jar.
  */
 public class ServerPacksClientMod {
 
     private static final Logger logger = Logger.getLogger(ServerPacksClientMod.class.getName());
+    private static final byte CMD_REFRESH = 0x01;
+
+    private static final ConcurrentLinkedQueue<Runnable> mainThreadTasks = new ConcurrentLinkedQueue<>();
+    private static volatile Channel channel;
+    private static volatile HeadsUpDisplay hud;
+
+    @SubscribeEvent
+    public void onHudInit(ClientHUDInitializedEvent event) {
+        hud = (HeadsUpDisplay) event.getHud();
+    }
+
+    static void consoleOutput(String msg) {
+        HeadsUpDisplay h = hud;
+        if (h != null) {
+            try { h.consoleOutput(msg); } catch (Throwable ignored) {}
+        }
+        logger.info(msg);
+    }
+
+    @SubscribeEvent
+    public void onClientInit(ClientInitEvent event) {
+        try {
+            PackInstaller.init();
+            channel = ModComm.registerChannel("ago.serverpacks", new AgoServerPacksListener());
+            logger.info("[ServerPacks] Registered ago.serverpacks channel");
+        } catch (Throwable t) {
+            logger.log(Level.SEVERE, "[ServerPacks] init failed", t);
+        }
+    }
+
+    /** Main-thread pump — pack install must touch Resources from the client thread. */
+    @SubscribeEvent
+    public void onTick(ClientTickEvent event) {
+        Runnable task;
+        while ((task = mainThreadTasks.poll()) != null) {
+            try {
+                task.run();
+            } catch (Throwable t) {
+                logger.log(Level.SEVERE, "[ServerPacks] main-thread task failed", t);
+            }
+        }
+    }
+
+    static void runOnMainThread(Runnable r) {
+        mainThreadTasks.offer(r);
+    }
 
     /**
-     * Handle server pack received event.
-     *
-     * <p>This is called on the main thread when the server sends pack information.
-     * Downloads happen in a background thread to avoid blocking the client.
+     * Diagnostic console commands for probing pack resolution:
+     * <ul>
+     *   <li>{@code sp_packs} — list installed packs in lookup order.</li>
+     *   <li>{@code sp_probe <mappingKey>} — call Resources.getAllState(key) to
+     *       see which pack(s) own the mapping (logs to client log).</li>
+     * </ul>
      */
     @SubscribeEvent
-    public void onServerPackReceived(ServerPackReceivedEvent event) {
-        String packId = event.getPackId();
-        String packUri = event.getPackUri();
+    public void onConsoleInput(ClientConsoleInputEvent event) {
+        String cmd = event.getCommand();
+        String[] args = event.getArgs();
+        if (cmd == null) return;
 
-        logger.info(String.format("[ServerPacks] Received pack from server: %s (%s)", packId, packUri));
-
-        try {
-            URL packUrl = new URL(packUri);
-            installServerPack(packId, packUrl);
-        } catch (MalformedURLException e) {
-            logger.log(Level.SEVERE, String.format("[ServerPacks] Invalid pack URI: %s", packUri), e);
-        }
-    }
-
-    /**
-     * Install a server pack (download if needed, then enable).
-     */
-    private void installServerPack(String packId, URL packUrl) {
-        // Check if pack already exists
-        Path packPath = Paths.get("packs", getPackName(packId));
-        if (Files.isRegularFile(packPath)) {
-            logger.info(String.format("[ServerPacks] Pack '%s' already exists, skipping download", packId));
-            enableDownloadedPack(packId, packPath);
-            refreshModels();
-        } else {
-            // Download in background thread
-            PackDownloader downloader = new PackDownloader(packUrl, packId, this::handleDownloadComplete);
-            new Thread(downloader, "ServerPacks-Downloader-" + packId).start();
-        }
-    }
-
-    /**
-     * Called when pack download completes (on background thread).
-     */
-    private void handleDownloadComplete(String packId, Path tempFile) {
-        // Run installation on main thread using reflection to access ModClient
-        try {
-            Class<?> modClientClass = Class.forName("org.gotti.wurmunlimited.modsupport.ModClient");
-            Method runTaskMethod = modClientClass.getDeclaredMethod("runTask", Runnable.class);
-
-            runTaskMethod.invoke(null, (Runnable) () -> {
-                try {
-                    Path packFile = Paths.get("packs", getPackName(packId));
-
-                    // Close pack if already open
-                    closePack(packFile);
-
-                    // Move temp file to final location
-                    Files.move(tempFile, packFile, StandardCopyOption.REPLACE_EXISTING);
-
-                    logger.info(String.format("[ServerPacks] Installed pack: %s", packFile));
-
-                    // Enable the pack
-                    enableDownloadedPack(packId, packFile);
-
-                    // Refresh models
-                    refreshModels();
-
-                } catch (IOException e) {
-                    logger.log(Level.SEVERE, String.format("[ServerPacks] Failed to install pack '%s'", packId), e);
-                }
-            });
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "[ServerPacks] Failed to run installation on main thread", e);
-        }
-    }
-
-    /**
-     * Enable a downloaded pack (add to resource manager and reload resources).
-     */
-    private void enableDownloadedPack(String packId, Path packFile) {
-        try {
-            // Use reflection to access ModPacks
-            Class<?> modPacksClass = Class.forName("org.gotti.wurmunlimited.modsupport.packs.ModPacks");
-            Method addPackMethod = modPacksClass.getDeclaredMethod("addPack", File.class, modPacksClass.getClassLoader().loadClass("org.gotti.wurmunlimited.modsupport.packs.ModPacks$Options[]"));
-
-            // Get OPTIONS_DEFAULT
-            Class<?> optionsClass = modPacksClass.getClassLoader().loadClass("org.gotti.wurmunlimited.modsupport.packs.ModPacks$Options");
-            Object optionsDefault = java.lang.reflect.Array.newInstance(optionsClass, 0);
-
-            // Add pack
-            Boolean added = (Boolean) addPackMethod.invoke(null, packFile.toFile(), optionsDefault);
-
-            if (added) {
-                logger.info(String.format("[ServerPacks] Enabled pack: %s", packId));
-
-                // Reload resources
-                reloadResources();
+        if ("sp_packs".equals(cmd)) {
+            runOnMainThread(PackInstaller::dumpPacks);
+            event.cancel();
+        } else if ("sp_reload".equals(cmd)) {
+            runOnMainThread(PackInstaller::reloadAll);
+            event.cancel();
+        } else if ("sp_probe".equals(cmd)) {
+            if (args == null || args.length < 2) {
+                consoleOutput("Usage: sp_probe <mapping.key>");
+            } else {
+                final String key = args[1];
+                runOnMainThread(() -> PackInstaller.probe(key));
             }
-        } catch (Exception e) {
-            logger.log(Level.WARNING, String.format("[ServerPacks] Failed to enable pack '%s'", packId), e);
+            event.cancel();
         }
     }
 
-    /**
-     * Close a pack if it's currently open.
-     */
-    private void closePack(Path packFile) {
+    private static final class AgoServerPacksListener implements IChannelListener {
+        @Override
+        public void handleMessage(ByteBuffer message) {
+            try (PacketReader reader = new PacketReader(message)) {
+                int n = reader.readInt();
+                while (n-- > 0) {
+                    String packId = reader.readUTF();
+                    String uri = reader.readUTF();
+                    logger.info(String.format("[ServerPacks] Got server pack %s (%s)", packId, uri));
+                    installServerPack(packId, uri);
+                }
+                scheduleRefreshModels();
+            } catch (IOException e) {
+                logger.log(Level.SEVERE, "[ServerPacks] failed to decode ago.serverpacks packet", e);
+            }
+        }
+    }
+
+    private static void installServerPack(String packId, String packUri) {
+        final URL packUrl;
         try {
-            Class<?> modPacksClass = Class.forName("org.gotti.wurmunlimited.modsupport.packs.ModPacks");
-            Method closePackMethod = modPacksClass.getDeclaredMethod("closePack", File.class);
-            closePackMethod.invoke(null, packFile.toFile());
-        } catch (Exception e) {
-            // Ignore - pack may not be open
+            packUrl = new URL(packUri);
+        } catch (MalformedURLException e) {
+            logger.log(Level.SEVERE, "[ServerPacks] bad pack URI: " + packUri, e);
+            return;
         }
-    }
 
-    /**
-     * Reload client resources after pack installation.
-     */
-    private void reloadResources() {
-        try {
-            // Reload particle effects
-            Class<?> particleClass = Class.forName("com.wurmonline.client.renderer.effects.CustomParticleEffectXml");
-            Method reloadParticles = particleClass.getDeclaredMethod("reloadParticlesFile");
-            reloadParticles.invoke(null);
-
-            // Reload item colors
-            Class<?> itemColorsClass = Class.forName("com.wurmonline.client.renderer.ItemColorsXml");
-            Class<?> worldClass = Class.forName("com.wurmonline.client.game.World");
-            Method reloadItemColors = itemColorsClass.getDeclaredMethod("reloadItemColors", worldClass);
-
-            // Get World instance
-            Class<?> modClientClass = Class.forName("org.gotti.wurmunlimited.modsupport.ModClient");
-            Method getWorldMethod = modClientClass.getDeclaredMethod("getWorld");
-            Object world = getWorldMethod.invoke(null);
-
-            reloadItemColors.invoke(null, world);
-
-            // Reload tiles
-            Class<?> tilesClass = Class.forName("com.wurmonline.client.renderer.terrain.TilePropertiesXml");
-            Method reloadTiles = tilesClass.getDeclaredMethod("reloadTiles");
-            reloadTiles.invoke(null);
-
-            // Reload terrain normals
-            Class<?> terrainClass = Class.forName("com.wurmonline.client.renderer.terrain.TerrainTexture");
-            Method reloadNormals = terrainClass.getDeclaredMethod("reloadNormalMaps");
-            reloadNormals.invoke(null);
-
-            logger.info("[ServerPacks] Resources reloaded");
-
-        } catch (Exception e) {
-            logger.log(Level.WARNING, "[ServerPacks] Failed to reload resources", e);
+        Path existing = Paths.get("packs", packId + ".jar");
+        boolean force = packUri.contains("force=true") || packUri.contains("force=1");
+        if (!force && Files.isRegularFile(existing)) {
+            runOnMainThread(() -> PackInstaller.enableDownloadedPack(packId, packUrl, existing));
+            return;
         }
+
+        Thread t = new Thread(new PackDownloader(packUrl, packId, (id, tempFile) ->
+                runOnMainThread(() -> {
+                    try {
+                        Path packFile = Paths.get("packs", id + ".jar");
+                        PackInstaller.closePack(packFile);
+                        Files.move(tempFile, packFile, StandardCopyOption.REPLACE_EXISTING);
+                        PackInstaller.enableDownloadedPack(id, packUrl, packFile);
+                    } catch (IOException e) {
+                        logger.log(Level.SEVERE, "[ServerPacks] failed to install pack " + id, e);
+                    }
+                })), "ServerPacks-Downloader-" + packId);
+        t.setDaemon(true);
+        t.start();
     }
 
-    /**
-     * Notify server to refresh models (via ModComm).
-     */
-    private void refreshModels() {
-        // TODO: Send CMD_REFRESH to server via ModComm
-        // This will require ModComm client implementation
-        logger.info("[ServerPacks] Refresh models (not yet implemented)");
-    }
-
-    /**
-     * Get the pack file name for a pack ID.
-     */
-    private String getPackName(String packId) {
-        return packId + ".jar";
+    private static void scheduleRefreshModels() {
+        runOnMainThread(() -> {
+            Channel c = channel;
+            if (c == null || !c.isActive()) return;
+            try (PacketWriter writer = new PacketWriter()) {
+                writer.writeByte(CMD_REFRESH);
+                c.sendMessage(writer.getBytes());
+            } catch (IOException e) {
+                logger.log(Level.WARNING, "[ServerPacks] failed to send CMD_REFRESH", e);
+            }
+        });
     }
 }

@@ -445,6 +445,127 @@ public class ProxyClientHook extends ClientHook {
         getInstance().fireMouseScroll(component, delta);
     }
 
+    // ========== COMPASS ==========
+
+    /**
+     * Static entry point fired after {@code CompassComponent.gameTick()}.
+     */
+    public static void fireCompassComponentTickEvent(Object component) {
+        getInstance().fireCompassComponentTick(component);
+    }
+
+    /**
+     * Static entry point fired after {@code CompassComponent.pick(PickData,int,int)}.
+     */
+    public static void fireCompassComponentPickEvent(Object component, Object pickData, int mouseX, int mouseY) {
+        getInstance().fireCompassComponentPick(component, pickData, mouseX, mouseY);
+    }
+
+    // ========== PICK RENDER (overlay seam) ==========
+
+    /**
+     * Static entry point fired at the start of {@code PickRenderer.execute(Queue)}.
+     * Called by {@code PickRenderPatch}. Mods subscribed to
+     * {@code PickRenderPreEvent} can inject primitives into the queue.
+     *
+     * @param queue the active render Queue
+     */
+    public static void firePickRenderPreEvent(Object queue) {
+        getInstance().firePickRenderPre(queue);
+    }
+
+    /**
+     * Static entry point fired at the end of {@code PickRenderer.execute(Queue)}.
+     * Called by {@code PickRenderPatch}. Mods subscribed to
+     * {@code PickRenderPostEvent} can append primitives after the engine's
+     * native pick geometry.
+     *
+     * @param queue the active render Queue
+     */
+    public static void firePickRenderPostEvent(Object queue) {
+        getInstance().firePickRenderPost(queue);
+    }
+
+    /**
+     * Static entry point fired at the end of
+     * {@code WorldRender.renderPickedItem(Queue)} — the visible render pass.
+     */
+    public static void fireWorldRenderPostEvent(Object queue, Object worldRender, Object pickRenderer) {
+        getInstance().fireWorldRenderPost(queue, worldRender, pickRenderer);
+    }
+
+    /**
+     * Static entry point fired when a {@code CellRenderable} finishes
+     * initialization (creature/player {@code initialize()} or ground-item
+     * constructor). Dispatches {@code CellRenderableInitEvent}.
+     */
+    public static void fireCellRenderableInitEvent(Object renderable) {
+        getInstance().fireCellRenderableInit(renderable);
+    }
+
+    /**
+     * Static entry point fired when {@code CellRenderable.removed(boolean)}
+     * is invoked. Dispatches {@code CellRenderableRemovedEvent}.
+     */
+    public static void fireCellRenderableRemovedEvent(Object renderable, boolean removeEffects) {
+        getInstance().fireCellRenderableRemoved(renderable, removeEffects);
+    }
+
+    // ========== CONSOLE / NET ==========
+
+    /**
+     * Static entry point for {@code WurmConsole.handleDevInput}. Returns
+     * {@code true} if any subscriber cancelled — the patch then returns
+     * {@code true} to claim the command.
+     */
+    public static boolean fireClientConsoleInputEventCancelled(String command, String[] args) {
+        return getInstance().fireClientConsoleInput(command, args);
+    }
+
+    /**
+     * Static entry point for {@code PlayerAction.getName()}. Returns a
+     * subscriber-supplied override name, or {@code null} to fall through to
+     * the vanilla name.
+     */
+    public static String fireGetPlayerActionNameEvent(short actionId, String originalName) {
+        return getInstance().fireGetPlayerActionName(actionId, originalName);
+    }
+
+    /**
+     * Static entry point for {@code WurmPopup.rebindPrimary()}. Fires a
+     * cancellable {@link com.garward.wurmmodloader.client.api.events.client.QuickActionRebindEvent}
+     * and returns {@code true} if any subscriber cancelled — the patch then
+     * returns, suppressing vanilla's {@code bind/temporaryBind} write.
+     */
+    public static boolean fireQuickActionRebindEventCancelled(short actionId, String actionName,
+                                                              int rawKey, boolean ctrlDown,
+                                                              boolean shiftDown, boolean altDown) {
+        return getInstance().fireQuickActionRebind(actionId, actionName, rawKey, ctrlDown, shiftDown, altDown);
+    }
+
+    // isDev override — any mod can force-enable dev gating globally (quick
+    // keybind dialogs, toggleKey, rebindPrimary, etc.). Atomic so the patched
+    // isDev() path stays lock-free.
+    private static final java.util.concurrent.atomic.AtomicBoolean DEV_OVERRIDE =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    public static void setDevOverride(boolean enabled) {
+        DEV_OVERRIDE.set(enabled);
+    }
+
+    public static boolean isDevOverrideActive() {
+        return DEV_OVERRIDE.get();
+    }
+
+    /**
+     * Static entry point for the deed-plan packet handler. Returns
+     * {@code true} if any subscriber cancelled — the patch then returns,
+     * suppressing the vanilla render path.
+     */
+    public static boolean fireDeedPlanPacketEventCancelled(java.nio.ByteBuffer buffer) {
+        return getInstance().fireDeedPlanPacket(buffer);
+    }
+
     // ========== SERVER CAPABILITIES ==========
 
     /**
@@ -487,32 +608,42 @@ public class ProxyClientHook extends ClientHook {
      * @param oldValue the value before set() was called
      * @param newValue the value after set() was called
      */
+    // Cached "key" field lookup per Option class. Walks the inheritance chain
+    // because `key` lives on a base class that may sit several levels above
+    // any given RangeOption subclass. null sentinel = class has no "key" at all.
+    private static final java.util.concurrent.ConcurrentHashMap<Class<?>, java.lang.reflect.Field> OPTION_KEY_FIELDS =
+        new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.lang.reflect.Field NO_KEY_FIELD;
+    static {
+        java.lang.reflect.Field sentinel = null;
+        try { sentinel = ProxyClientHook.class.getDeclaredField("OPTION_KEY_FIELDS"); } catch (NoSuchFieldException ignored) {}
+        NO_KEY_FIELD = sentinel;
+    }
+
+    private static java.lang.reflect.Field resolveOptionKeyField(Class<?> cls) {
+        java.lang.reflect.Field cached = OPTION_KEY_FIELDS.get(cls);
+        if (cached != null) return cached == NO_KEY_FIELD ? null : cached;
+        for (Class<?> c = cls; c != null && c != Object.class; c = c.getSuperclass()) {
+            try {
+                java.lang.reflect.Field f = c.getDeclaredField("key");
+                f.setAccessible(true);
+                OPTION_KEY_FIELDS.put(cls, f);
+                return f;
+            } catch (NoSuchFieldException ignored) {}
+        }
+        OPTION_KEY_FIELDS.put(cls, NO_KEY_FIELD);
+        return null;
+    }
+
     public static void fireFOVChangedEventIfApplicable(Object option, int oldValue, int newValue) {
+        if (oldValue == newValue) return;
+        java.lang.reflect.Field keyField = resolveOptionKeyField(option.getClass());
+        if (keyField == null) return;
         try {
-            // ALL LOGIC IS HERE (not in the patch!)
-
-            // Check 1: Is this the fovHorizontal option?
-            // We use reflection-safe string comparison of the option key
-            Class<?> optionClass = option.getClass();
-            java.lang.reflect.Field keyField = optionClass.getSuperclass().getDeclaredField("key");
-            keyField.setAccessible(true);
-            String optionKey = (String) keyField.get(option);
-
-            if (!"fov_horizontal".equals(optionKey)) {
-                return; // Not FOV, ignore
-            }
-
-            // Check 2: Did the value actually change?
-            if (oldValue == newValue) {
-                return; // No change, ignore
-            }
-
-            // Both checks passed - fire the event!
+            if (!"fov_horizontal".equals(keyField.get(option))) return;
             getInstance().fireFOVChanged(oldValue, newValue);
-
-        } catch (Exception e) {
-            logger.warning("[ProxyClientHook] Error in FOV change detection: " + e.getMessage());
-            e.printStackTrace();
+        } catch (IllegalAccessException e) {
+            logger.warning("[ProxyClientHook] FOV key read failed: " + e.getMessage());
         }
     }
 }

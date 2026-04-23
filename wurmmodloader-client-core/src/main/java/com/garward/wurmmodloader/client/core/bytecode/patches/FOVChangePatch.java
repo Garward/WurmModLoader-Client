@@ -3,8 +3,10 @@ package com.garward.wurmmodloader.client.core.bytecode.patches;
 import com.garward.wurmmodloader.client.api.bytecode.BytecodePatch;
 import javassist.CannotCompileException;
 import javassist.CtClass;
+import javassist.CtField;
 import javassist.CtMethod;
 import javassist.NotFoundException;
+import javassist.Modifier;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -72,30 +74,18 @@ public class FOVChangePatch implements BytecodePatch {
 
         String proxyClass = "com.garward.wurmmodloader.client.modloader.ProxyClientHook";
 
-        // ===================================================================
-        // SURGICAL PATCH - NO LOGIC, ONLY ROUTING
-        // ===================================================================
-        //
-        // Before assignment: Capture old value
-        // After assignment: Route to ProxyClientHook (which contains logic)
-        // ===================================================================
+        // insertBefore/insertAfter are separate scopes, so a local can't bridge
+        // them. Stash the pre-assignment value on a synthetic instance field.
+        CtField stash = new CtField(CtClass.intType, "_wmlOldValue", ctClass);
+        stash.setModifiers(Modifier.PRIVATE | Modifier.TRANSIENT);
+        ctClass.addField(stash);
 
-        // Capture old value BEFORE the assignment happens
-        setMethod.insertBefore(
-            "{ " +
-            "  int _wmlOldValue = this.value; " +  // Store old value
-            "}"
-        );
+        setMethod.insertBefore("this._wmlOldValue = this.value;");
 
-        // After assignment, route to ProxyClientHook (no logic here!)
         setMethod.insertAfter(
-            "{ " +
-            "  try {" +
-            "    " + proxyClass + ".fireFOVChangedEventIfApplicable(this, _wmlOldValue, this.value);" +
-            "  } catch (Throwable t) {" +
-            "    t.printStackTrace();" +
-            "  }" +
-            "}"
+            "try {" +
+            "  " + proxyClass + ".fireFOVChangedEventIfApplicable(this, this._wmlOldValue, this.value);" +
+            "} catch (Throwable t) { t.printStackTrace(); }"
         );
 
         logger.info("[FOVChangePatch] ✅ Successfully patched RangeOption.set() for FOV change detection");

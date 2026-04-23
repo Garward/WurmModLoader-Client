@@ -17,3 +17,12 @@ project(":mods:serverpacks").projectDir = file("mods/serverpacks")
 
 include("mods:livemap")
 project(":mods:livemap").projectDir = file("mods/livemap")
+
+include("mods:wurmesp")
+project(":mods:wurmesp").projectDir = file("mods/wurmesp")
+
+include("mods:compass")
+project(":mods:compass").projectDir = file("mods/compass")
+
+include("mods:action")
+project(":mods:action").projectDir = file("mods/action")

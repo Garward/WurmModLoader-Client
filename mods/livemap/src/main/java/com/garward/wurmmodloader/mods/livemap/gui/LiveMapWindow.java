@@ -92,6 +92,13 @@ public class LiveMapWindow extends ModWindow {
         private float viewCenterX;
         private float viewCenterY;
 
+        // The window is constructed from ClientHUDInitializedEvent, which fires
+        // before the player's position is populated — so centerOnPlayer() in the
+        // ctor lands on (0,0) (the NW corner). Defer the real center until the
+        // first render where the player tile is non-zero. Cleared once we've
+        // successfully centered; user drag/zoom is never touched again.
+        private boolean pendingInitialCenter = true;
+
         private int hoverMouseX = Integer.MIN_VALUE;
         private int hoverMouseY = Integer.MIN_VALUE;
 
@@ -120,15 +127,20 @@ public class LiveMapWindow extends ModWindow {
 
         @Override
         protected void onRender(Queue queue, float alpha) {
+            PlayerPosition pos = world.getPlayer().getPos();
+            if (pendingInitialCenter && (pos.getTileX() != 0 || pos.getTileY() != 0)) {
+                centerOnPlayer();
+                pendingInitialCenter = false;
+            }
             renderer.render(queue, getScreenX(), getScreenY(), MAP_VIEW_WIDTH, MAP_VIEW_HEIGHT,
                     viewCenterX, viewCenterY, currentZoom);
-            PlayerPosition pos = world.getPlayer().getPos();
             com.garward.wurmmodloader.mods.livemap.data.MapOverlayData overlay = cache.getOverlay();
             renderer.renderOverlays(queue,
                     getScreenX(), getScreenY(), MAP_VIEW_WIDTH, MAP_VIEW_HEIGHT,
                     viewCenterX, viewCenterY, currentZoom,
                     overlay,
-                    pos.getTileX(), pos.getTileY());
+                    pos.getTileX(), pos.getTileY(),
+                    world.getPlayer().getPlayerName());
 
             if (hoverMouseX != Integer.MIN_VALUE) {
                 String label = renderer.hitTest(hoverMouseX, hoverMouseY,

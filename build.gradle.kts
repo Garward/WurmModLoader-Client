@@ -164,9 +164,10 @@ tasks.register<Zip>("dist") {
         into(".")
     }
 
-    // Launcher scripts
+    // Launcher + patcher scripts
     from("distribution/scripts") {
-        include("launch-client.sh", "launch-client.bat")
+        include("launch-client.sh", "launch-client.bat",
+                "patch-client.sh", "patch-client.bat")
         into("scripts")
         fileMode = Integer.parseInt("755", 8)
     }

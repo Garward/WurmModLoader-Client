@@ -1,82 +1,61 @@
 # ServerPacks Client Mod
 
-Event-driven client mod for downloading and installing server packs.
+Client-side receiver for server-delivered resource packs. Protocol-compatible
+with Ago-hosted servers.
 
-## Overview
+## What it does
 
-This mod replaces the old reflection-based server packs implementation with a modern event-driven architecture using WurmModLoader client events. It provides **~100% reliability** compared to the old 50% success rate.
+Registers the legacy `ago.serverpacks` ModComm channel and installs packs the
+server advertises. Wire format (unchanged from upstream tyoda/ago1024):
 
-## Features
-
-- ✅ **Pure event-driven** - No reflection hooks, uses @SubscribeEvent
-- ✅ **Background downloading** - Non-blocking pack downloads
-- ✅ **Automatic resource reload** - Refreshes textures, particles, tiles, etc.
-- ✅ **Cross-pack references** - Supports `~packname/resource.dds` syntax
-- ✅ **Error handling** - Explicit logging instead of silent failures
-
-## Architecture
-
-### Events
-- `ServerPackReceivedEvent` - Fired when server sends pack info via ModComm
-
-### Bytecode Patches (in wurmmodloader-client-core)
-- `ResourcesFindPackPatch` - Adds findPack() method
-- `PackResourceUrlRawFilePathPatch` - Makes rawFilePath public
-- `PackInitVirtualPacksPatch` - Allows virtual packs with "~"
-- `PackGetResourceCrossPackPatch` - Cross-pack resource resolution
-- `PackResourceUrlDeriveCrossPackPatch` - Cross-pack derivation
-
-### Components
-- `ServerPacksClientMod.java` - Main mod with event handlers
-- `PackDownloader.java` - Background pack downloader
-
-## Building
-
-```bash
-./gradlew :mods:serverpacks:build
-./gradlew :mods:serverpacks:deployMod
+```
+int n;
+for n: UTF packId; UTF uri;
 ```
 
-## Installation
+After installing all advertised packs the mod sends `CMD_REFRESH (0x01)` back
+to the server to trigger model reload.
 
-The mod is automatically deployed to:
-```
-~/.local/share/Steam/steamapps/common/Wurm Unlimited/WurmLauncher/mods/
-```
+## Pack install pipeline
 
-Files deployed:
-- `ServerPacksClientMod.jar` (6.7KB)
-- `ServerPacksClientMod.properties`
+`PackInstaller` mirrors `org.gotti.wurmunlimited.modsupport.packs.ModPacks` via
+direct reflection against the vanilla client — no legacy launcher jar needed.
 
-## Usage
+1. Download pack to `packs/<packId>.jar` (skipped if `force=true` not set and
+   the file already exists).
+2. Construct `com.wurmonline.client.resources.JarPack` and call its `init`.
+3. Splice into `Resources.packs` (prepend if URL has `?prepend=true`).
+4. Clear `resolvedResources` / `unresolvedResources` and re-resolve every key.
+5. Reload XML-driven subsystems: particles, item colors, tile properties,
+   terrain normal maps.
 
-The mod automatically activates when:
-1. You connect to a server that sends server packs
-2. Server uses ModComm channel "ago.serverpacks"
-3. Server sends pack ID + URI
+Packs are re-used across sessions — only changed packs re-download.
 
-The mod will:
-1. Download pack from URI (HTTP/HTTPS)
-2. Install to `packs/` directory
-3. Reload client resources
-4. Notify server (refresh models)
+## In-game console commands
 
-## Comparison: Old vs New
+| Command | Purpose |
+|---------|---------|
+| `sp_packs` | List installed packs in lookup order (owner jar path). |
+| `sp_probe <key>` | Resolve a mapping and show which pack owns it. Example: `sp_probe model.draedricdecor.sign.overhead.enter` |
+| `sp_reload` | Force-clear resolver caches and reload particles/item-colors/tiles/terrain. Useful when late-arriving packs need to replace already-rendered fallbacks without relogging. |
 
-| Aspect | Old Implementation | New Implementation |
-|--------|-------------------|-------------------|
-| **Reliability** | 50% (race conditions) | ~100% (proper event ordering) |
-| **Reflection hooks** | InvocationHandlerFactory + proxy | None - pure events |
-| **preInit() complexity** | Heavy bytecode manipulation | Clean declarative patches |
-| **Error handling** | Silent failures | Explicit logging |
-| **Maintainability** | Mixed concerns | Separated: events → patches → mod |
+All output prints to the in-game console and is mirrored to `client.log`.
 
-## Version
+## URL query flags
 
-**0.2.0** - Initial event-driven implementation
+- `force=true` / `force=1` — re-download even if a cached jar exists.
+- `prepend=true` / `prepend=1` — insert pack at index 0 so its mappings win
+  over later packs.
 
 ## Dependencies
 
-- WurmModLoader Client API 0.2.0+
-- Wurm Unlimited client.jar
-- Wurm Unlimited common.jar
+- WurmModLoader Client API (`ClientInitEvent`, `ClientTickEvent`,
+  `ClientHUDInitializedEvent`, `ClientConsoleInputEvent`).
+- WurmModLoader Client Core (`ModComm` / `Channel` / `PacketReader` /
+  `PacketWriter`).
+- Wurm Unlimited `client.jar` + `common.jar` (compileOnly, reflected at
+  runtime).
+
+## Version
+
+0.2.0

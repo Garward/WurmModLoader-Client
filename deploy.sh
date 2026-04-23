@@ -111,6 +111,43 @@ for jar in "$TEMP_EXTRACT"/*.jar; do
     fi
 done
 
+# Purge stale modloader jars (old versions) so the agent/bootstrap always picks
+# up the latest. Newest deployed jar wins.
+LATEST_MODLOADER=$(ls -t "$DEPLOY_DIR"/wurmmodloader-client-*.jar 2>/dev/null | head -1)
+for stale in "$DEPLOY_DIR"/wurmmodloader-client-*.jar; do
+    if [ "$stale" != "$LATEST_MODLOADER" ]; then
+        rm -f "$stale" && echo -e "  ${YELLOW}⌫${NC} Removed stale: $(basename "$stale")"
+    fi
+done
+
+echo ""
+
+# === PATCH client.jar ON DISK ===
+# Bakes widenings + wurmModLoaderBootstrap into client.jar so Steam launches
+# (which don't go through LaunchConfig.ini VMParams the same way) still load
+# the modloader. Idempotent: restores from .backup first, then re-patches.
+echo -e "${BLUE}======================================================================${NC}"
+echo -e "${YELLOW}🔨 Patching client.jar on disk${NC}"
+echo -e "${BLUE}======================================================================${NC}"
+
+WURM_JRE="$CLIENT_DIR/../runtime/jre1.8.0_172/bin/java"
+CLIENT_JAR="$CLIENT_DIR/client.jar"
+CLIENT_BACKUP="$CLIENT_DIR/client.jar.backup"
+
+if [ ! -x "$WURM_JRE" ]; then
+    echo -e "${YELLOW}⚠️  Wurm JRE not found at $WURM_JRE; falling back to system java${NC}"
+    WURM_JRE="java"
+fi
+
+if [ -f "$CLIENT_BACKUP" ]; then
+    echo -e "  ${BLUE}↻${NC} Restoring client.jar from backup before re-patch..."
+    cp "$CLIENT_BACKUP" "$CLIENT_JAR"
+fi
+
+(cd "$CLIENT_DIR" && "$WURM_JRE" -jar "$LATEST_MODLOADER") >/dev/null 2>&1 && \
+    echo -e "  ${GREEN}✓${NC} client.jar patched ($(basename "$LATEST_MODLOADER"))" || \
+    { echo -e "  ${RED}✗${NC} client.jar patch failed — run manually: cd \"$CLIENT_DIR\" && \"$WURM_JRE\" -jar \"$LATEST_MODLOADER\""; ERRORS=$((ERRORS + 1)); }
+
 echo ""
 
 # === DEPLOY LAUNCHER SCRIPTS ===

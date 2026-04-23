@@ -98,18 +98,28 @@ public class MapHttpClient {
      */
     public void fetchTileAsync(int zoom, int tileX, int tileY, TileCallback callback) {
         new Thread(() -> {
+            byte[] pngData = null;
             try {
                 String url = String.format("%s/livemap/tile/%d/%d/%d.png", serverUrl, zoom, tileX, tileY);
-                byte[] pngData = fetchBytes(url);
+                pngData = fetchBytes(url);
 
-                if (pngData != null && pngData.length > 0 && callback != null) {
-                    callback.onTileReceived(zoom, tileX, tileY, pngData);
+                if (pngData != null && pngData.length > 0) {
                     logger.fine(String.format("[LiveMap] Fetched tile %d/%d/%d: %d bytes", zoom, tileX, tileY, pngData.length));
-                } else if (pngData == null || pngData.length == 0) {
+                } else {
                     logger.warning(String.format("[LiveMap] Empty tile response for %d/%d/%d", zoom, tileX, tileY));
                 }
             } catch (Exception e) {
                 logger.log(Level.WARNING, String.format("[LiveMap] Failed to fetch tile %d/%d/%d", zoom, tileX, tileY), e);
+            } finally {
+                // Always notify — the caller relies on this to clear its in-flight
+                // dedupe set. Pass null on failure so success can still be distinguished.
+                if (callback != null) {
+                    try {
+                        callback.onTileReceived(zoom, tileX, tileY, pngData);
+                    } catch (Throwable t) {
+                        logger.log(Level.WARNING, "[LiveMap] Tile callback threw", t);
+                    }
+                }
             }
         }, String.format("LiveMap-TileFetcher-%d-%d-%d", zoom, tileX, tileY)).start();
     }

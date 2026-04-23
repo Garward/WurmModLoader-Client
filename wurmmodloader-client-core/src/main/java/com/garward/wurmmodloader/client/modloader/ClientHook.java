@@ -330,6 +330,121 @@ public class ClientHook {
     }
 
     /**
+     * Fire {@code CompassComponentTickEvent} after {@code CompassComponent.gameTick}.
+     */
+    public void fireCompassComponentTick(Object component) {
+        com.garward.wurmmodloader.client.api.events.gui.CompassComponentTickEvent event =
+            new com.garward.wurmmodloader.client.api.events.gui.CompassComponentTickEvent(component);
+        postEvent(event);
+    }
+
+    /**
+     * Fire {@code CompassComponentPickEvent} after {@code CompassComponent.pick}.
+     */
+    public void fireCompassComponentPick(Object component, Object pickData, int mouseX, int mouseY) {
+        com.garward.wurmmodloader.client.api.events.gui.CompassComponentPickEvent event =
+            new com.garward.wurmmodloader.client.api.events.gui.CompassComponentPickEvent(component, pickData, mouseX, mouseY);
+        postEvent(event);
+    }
+
+    /**
+     * Fire {@code PickRenderPreEvent} at the start of {@code PickRenderer.execute}.
+     */
+    public void firePickRenderPre(Object queue) {
+        com.garward.wurmmodloader.client.api.events.render.PickRenderPreEvent event =
+            new com.garward.wurmmodloader.client.api.events.render.PickRenderPreEvent(queue);
+        postEvent(event);
+    }
+
+    /**
+     * Fire {@code PickRenderPostEvent} at the end of {@code PickRenderer.execute}.
+     */
+    public void firePickRenderPost(Object queue) {
+        com.garward.wurmmodloader.client.api.events.render.PickRenderPostEvent event =
+            new com.garward.wurmmodloader.client.api.events.render.PickRenderPostEvent(queue);
+        postEvent(event);
+    }
+
+    /**
+     * Fire {@code WorldRenderPostEvent} at the end of
+     * {@code WorldRender.renderPickedItem}.
+     */
+    public void fireWorldRenderPost(Object queue, Object worldRender, Object pickRenderer) {
+        com.garward.wurmmodloader.client.api.events.render.WorldRenderPostEvent event =
+            new com.garward.wurmmodloader.client.api.events.render.WorldRenderPostEvent(queue, worldRender, pickRenderer);
+        postEvent(event);
+    }
+
+    /**
+     * Fire {@code CellRenderableInitEvent} when a cell renderable completes
+     * its {@code initialize()} (or constructor, for ground items).
+     */
+    public void fireCellRenderableInit(Object renderable) {
+        com.garward.wurmmodloader.client.api.events.render.CellRenderableInitEvent event =
+            new com.garward.wurmmodloader.client.api.events.render.CellRenderableInitEvent(renderable);
+        postEvent(event);
+    }
+
+    /**
+     * Fire {@code CellRenderableRemovedEvent} from {@code CellRenderable.removed}.
+     */
+    public void fireCellRenderableRemoved(Object renderable, boolean removeEffects) {
+        com.garward.wurmmodloader.client.api.events.render.CellRenderableRemovedEvent event =
+            new com.garward.wurmmodloader.client.api.events.render.CellRenderableRemovedEvent(renderable, removeEffects);
+        postEvent(event);
+    }
+
+    /**
+     * Fire cancellable {@code ClientConsoleInputEvent}. Returns whether any
+     * subscriber cancelled (i.e. the command was claimed).
+     */
+    public boolean fireClientConsoleInput(String command, String[] args) {
+        com.garward.wurmmodloader.client.api.events.client.ClientConsoleInputEvent event =
+            new com.garward.wurmmodloader.client.api.events.client.ClientConsoleInputEvent(command, args);
+        postEvent(event);
+        return event.isCancelled();
+    }
+
+    /**
+     * Fire {@code PlayerActionNameResolvedEvent}. Returns the override name
+     * set by any subscriber, or {@code null} if nothing touched it — fires on
+     * every menu render, so it MUST stay allocation-light.
+     */
+    public String fireGetPlayerActionName(short actionId, String originalName) {
+        com.garward.wurmmodloader.client.api.events.client.PlayerActionNameResolvedEvent event =
+            new com.garward.wurmmodloader.client.api.events.client.PlayerActionNameResolvedEvent(actionId, originalName);
+        postEvent(event);
+        return event.getOverrideName();
+    }
+
+    /**
+     * Fire cancellable {@code QuickActionRebindEvent}. Returns whether any
+     * subscriber cancelled — the bytecode patch uses this to short-circuit
+     * vanilla's {@code bind/temporaryBind} write path.
+     */
+    public boolean fireQuickActionRebind(short actionId, String actionName, int rawKey,
+                                         boolean ctrlDown, boolean shiftDown, boolean altDown) {
+        com.garward.wurmmodloader.client.api.events.client.QuickActionRebindEvent event =
+            new com.garward.wurmmodloader.client.api.events.client.QuickActionRebindEvent(
+                actionId, actionName, rawKey, ctrlDown, shiftDown, altDown);
+        postEvent(event);
+        return event.isCancelled();
+    }
+
+    /**
+     * Fire cancellable {@code DeedPlanPacketEvent}. Passes a duplicate of
+     * the buffer so subscribers don't disturb the engine's parse. Returns
+     * whether any subscriber cancelled.
+     */
+    public boolean fireDeedPlanPacket(java.nio.ByteBuffer buffer) {
+        java.nio.ByteBuffer dup = buffer == null ? null : buffer.duplicate();
+        com.garward.wurmmodloader.client.api.events.lifecycle.DeedPlanPacketEvent event =
+            new com.garward.wurmmodloader.client.api.events.lifecycle.DeedPlanPacketEvent(dup);
+        postEvent(event);
+        return event.isCancelled();
+    }
+
+    /**
      * Fire ServerCapabilitiesReceivedEvent when server sends mod capabilities.
      *
      * @param event the event to fire
