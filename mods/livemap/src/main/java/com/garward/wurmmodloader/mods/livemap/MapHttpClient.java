@@ -1,4 +1,4 @@
-package com.garward.mods.livemap;
+package com.garward.wurmmodloader.mods.livemap;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -58,9 +58,24 @@ public class MapHttpClient {
      * @param callback called with JSON data when fetch completes
      */
     public void fetchDataAsync(Consumer<String> callback) {
+        fetchDataAsync(null, callback);
+    }
+
+    /**
+     * Fetch live map data scoped to a viewer. The server filters the
+     * {@code players[]} array to fellow villagers of {@code viewerName}; when
+     * {@code viewerName} is null, no players are returned.
+     */
+    public void fetchDataAsync(String viewerName, Consumer<String> callback) {
         new Thread(() -> {
             try {
-                String url = serverUrl + "/livemap/api/data";
+                String url;
+                if (viewerName == null || viewerName.isEmpty()) {
+                    url = serverUrl + "/livemap/api/data";
+                } else {
+                    url = serverUrl + "/livemap/api/data/me/"
+                        + java.net.URLEncoder.encode(viewerName, "UTF-8");
+                }
                 String json = fetchJson(url);
 
                 if (json != null && callback != null) {

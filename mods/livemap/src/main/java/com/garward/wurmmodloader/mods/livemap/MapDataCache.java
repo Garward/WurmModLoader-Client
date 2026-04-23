@@ -1,4 +1,6 @@
-package com.garward.mods.livemap;
+package com.garward.wurmmodloader.mods.livemap;
+
+import com.garward.wurmmodloader.mods.livemap.data.MapOverlayData;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
@@ -31,6 +33,9 @@ public class MapDataCache {
 
     // Map data cache (latest fetched data)
     private CachedMapData mapData = null;
+
+    // Parsed overlay snapshot (players, villages, altars, towers)
+    private volatile MapOverlayData overlay = MapOverlayData.EMPTY;
 
     // Configuration
     private final long tileTtlMs;
@@ -98,7 +103,13 @@ public class MapDataCache {
      */
     public void cacheMapData(String jsonData) {
         mapData = new CachedMapData(jsonData, dataTtlMs);
+        overlay = MapOverlayData.parse(jsonData);
         logger.fine("[LiveMap] Cached map data: " + jsonData.length() + " bytes");
+    }
+
+    /** Latest parsed overlay snapshot. Never null — returns EMPTY if nothing cached. */
+    public MapOverlayData getOverlay() {
+        return overlay;
     }
 
     /**
@@ -126,6 +137,7 @@ public class MapDataCache {
     public void clear() {
         tileCache.clear();
         mapData = null;
+        overlay = MapOverlayData.EMPTY;
         logger.info("[LiveMap] Cache cleared");
     }
 

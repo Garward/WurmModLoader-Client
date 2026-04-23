@@ -1,7 +1,7 @@
-package com.garward.mods.livemap;
+package com.garward.wurmmodloader.mods.livemap;
 
-import com.garward.mods.livemap.gui.LiveMapWindow;
-import com.garward.mods.livemap.gui.LiveMinimap;
+import com.garward.wurmmodloader.mods.livemap.gui.LiveMapWindow;
+import com.garward.wurmmodloader.mods.livemap.gui.LiveMinimap;
 import com.garward.wurmmodloader.client.api.events.base.SubscribeEvent;
 import com.garward.wurmmodloader.client.api.events.lifecycle.ClientWorldLoadedEvent;
 import com.garward.wurmmodloader.client.api.events.lifecycle.ServerInfoAvailableEvent;
@@ -61,6 +61,12 @@ public class LiveMapClientMod {
     // Server-provided map dimensions (applied to renderers once both config + GUI exist)
     private int serverMapSize = -1;
     private int serverTileSize = -1;
+    private int serverMinZoom = Integer.MIN_VALUE;
+    private int serverMaxZoom = Integer.MIN_VALUE;
+
+    // Local player handle — captured at HUD init so the polling thread can
+    // scope its data request to the viewer's village.
+    private com.wurmonline.client.game.World world;
 
     /**
      * Handle world loaded event. If the server has already reported its HTTP
@@ -138,8 +144,8 @@ public class LiveMapClientMod {
         }
 
         try {
-            com.wurmonline.client.game.World world =
-                (com.wurmonline.client.game.World) event.getWorld();
+            this.world = (com.wurmonline.client.game.World) event.getWorld();
+            com.wurmonline.client.game.World world = this.world;
             com.wurmonline.client.renderer.gui.MainMenu mainMenu =
                 (com.wurmonline.client.renderer.gui.MainMenu) event.getMainMenu();
 
@@ -181,15 +187,19 @@ public class LiveMapClientMod {
             @Override
             public void run() {
                 if (httpClient != null) {
+                    String viewer = null;
+                    try {
+                        if (world != null && world.getPlayer() != null) {
+                            viewer = world.getPlayer().getPlayerName();
+                        }
+                    } catch (Throwable ignored) {}
                     // Fetch data asynchronously with callback
-                    httpClient.fetchDataAsync(jsonData -> {
+                    httpClient.fetchDataAsync(viewer, jsonData -> {
                         // Cache the data
                         dataCache.cacheMapData(jsonData);
                         currentMapData = jsonData;
 
                         logger.fine("[LiveMap] Received map data: " + jsonData.length() + " bytes");
-
-                        // TODO: Parse JSON and update map overlays (players, villages, altars)
                     });
                 }
             }
@@ -265,10 +275,15 @@ public class LiveMapClientMod {
         try {
             int ms = extractInt(json, "mapSize");
             int ts = extractInt(json, "tileSize");
+            int minZ = extractSignedInt(json, "minZoom");
+            int maxZ = extractSignedInt(json, "maxZoom");
             if (ms > 0 && ts > 0) {
                 serverMapSize = ms;
                 serverTileSize = ts;
-                logger.info("[LiveMap] Server map config: mapSize=" + ms + ", tileSize=" + ts);
+                if (minZ != Integer.MIN_VALUE) serverMinZoom = minZ;
+                if (maxZ != Integer.MIN_VALUE) serverMaxZoom = maxZ;
+                logger.info("[LiveMap] Server map config: mapSize=" + ms + ", tileSize=" + ts
+                        + ", zoom=[" + serverMinZoom + ".." + serverMaxZoom + "]");
                 propagateMapConfig();
             } else {
                 logger.warning("[LiveMap] Could not parse mapSize/tileSize from: " + json);
@@ -285,13 +300,26 @@ public class LiveMapClientMod {
         return m.find() ? Integer.parseInt(m.group(1)) : -1;
     }
 
+    private static int extractSignedInt(String json, String key) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+            .compile("\"" + java.util.regex.Pattern.quote(key) + "\"\\s*:\\s*(-?\\d+)")
+            .matcher(json);
+        return m.find() ? Integer.parseInt(m.group(1)) : Integer.MIN_VALUE;
+    }
+
     private void propagateMapConfig() {
         if (serverMapSize <= 0 || serverTileSize <= 0) return;
         if (fullMapWindow != null) {
             fullMapWindow.getRenderer().setMapConfig(serverMapSize, serverTileSize);
+            if (serverMinZoom != Integer.MIN_VALUE && serverMaxZoom != Integer.MIN_VALUE) {
+                fullMapWindow.getRenderer().setZoomRange(serverMinZoom, serverMaxZoom);
+            }
         }
         if (minimap != null) {
             minimap.getRenderer().setMapConfig(serverMapSize, serverTileSize);
+            if (serverMinZoom != Integer.MIN_VALUE && serverMaxZoom != Integer.MIN_VALUE) {
+                minimap.getRenderer().setZoomRange(serverMinZoom, serverMaxZoom);
+            }
         }
     }
 }

@@ -1,9 +1,9 @@
-package com.garward.mods.livemap.gui;
+package com.garward.wurmmodloader.mods.livemap.gui;
 
-import com.garward.mods.livemap.LiveMapClientMod;
-import com.garward.mods.livemap.MapDataCache;
-import com.garward.mods.livemap.renderer.TileRenderer;
-import com.garward.mods.livemap.renderer.local.LiveMap;
+import com.garward.wurmmodloader.mods.livemap.LiveMapClientMod;
+import com.garward.wurmmodloader.mods.livemap.MapDataCache;
+import com.garward.wurmmodloader.mods.livemap.renderer.TileRenderer;
+import com.garward.wurmmodloader.mods.livemap.renderer.local.LiveMap;
 import com.garward.wurmmodloader.client.api.gui.ArrayDirection;
 import com.garward.wurmmodloader.client.api.gui.BorderRegion;
 import com.garward.wurmmodloader.client.api.gui.Insets;
@@ -113,6 +113,10 @@ public class LiveMinimap extends ModWindow {
             if (mode == Mode.SERVER_HTTP) {
                 renderer.render(queue, getScreenX(), getScreenY(), MAP_SIZE, MAP_SIZE,
                         pos.getTileX(), pos.getTileY(), currentZoom);
+                // Minimap is always centered on the player, so the dot sits at
+                // the view center — matches the vanilla local-map indicator.
+                renderer.drawPlayerDot(queue,
+                        getScreenX() + MAP_SIZE / 2f, getScreenY() + MAP_SIZE / 2f);
             } else {
                 if (localMap == null) {
                     localMap = new LiveMap(world, MAP_SIZE);
@@ -128,8 +132,8 @@ public class LiveMinimap extends ModWindow {
             else if (delta > 0) zoomOut();
         }
 
-        void zoomIn()  { if (currentZoom < 5) currentZoom++; }
-        void zoomOut() { if (currentZoom > 0) currentZoom--; }
+        void zoomIn()  { if (currentZoom < renderer.getMaxZoom()) currentZoom++; }
+        void zoomOut() { if (currentZoom > renderer.getMinZoom()) currentZoom--; }
 
         void toggleMode() {
             mode = (mode == Mode.SERVER_HTTP) ? Mode.CLIENT_LOCAL : Mode.SERVER_HTTP;

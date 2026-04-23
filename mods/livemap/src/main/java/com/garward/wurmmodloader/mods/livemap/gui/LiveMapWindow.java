@@ -1,8 +1,8 @@
-package com.garward.mods.livemap.gui;
+package com.garward.wurmmodloader.mods.livemap.gui;
 
-import com.garward.mods.livemap.LiveMapClientMod;
-import com.garward.mods.livemap.MapDataCache;
-import com.garward.mods.livemap.renderer.TileRenderer;
+import com.garward.wurmmodloader.mods.livemap.LiveMapClientMod;
+import com.garward.wurmmodloader.mods.livemap.MapDataCache;
+import com.garward.wurmmodloader.mods.livemap.renderer.TileRenderer;
 import com.garward.wurmmodloader.client.api.gui.ArrayDirection;
 import com.garward.wurmmodloader.client.api.gui.BorderRegion;
 import com.garward.wurmmodloader.client.api.gui.Insets;
@@ -75,7 +75,9 @@ public class LiveMapWindow extends ModWindow {
     @Override
     public void pick(PickData pickData, int xMouse, int yMouse) {
         if (mapView.contains(xMouse, yMouse)) {
-            // TODO: Handle clicks on map (waypoints, etc.)
+            mapView.setHover(xMouse, yMouse);
+        } else {
+            mapView.clearHover();
         }
     }
 
@@ -84,10 +86,17 @@ public class LiveMapWindow extends ModWindow {
 
         private final World world;
         private final TileRenderer renderer;
+        private final MapDataCache cache;
 
         private int currentZoom = 0;
         private float viewCenterX;
         private float viewCenterY;
+
+        private int hoverMouseX = Integer.MIN_VALUE;
+        private int hoverMouseY = Integer.MIN_VALUE;
+
+        void setHover(int x, int y) { hoverMouseX = x; hoverMouseY = y; }
+        void clearHover() { hoverMouseX = Integer.MIN_VALUE; hoverMouseY = Integer.MIN_VALUE; }
 
         private boolean isDragging = false;
         private int dragAnchorMouseX;
@@ -99,6 +108,7 @@ public class LiveMapWindow extends ModWindow {
             super("Live Map View", MAP_VIEW_WIDTH, MAP_VIEW_HEIGHT);
 
             this.world = world;
+            this.cache = cache;
             this.renderer = new TileRenderer(cache);
 
             this.renderer.setTileRequestCallback((zoom, tileX, tileY) -> {
@@ -112,7 +122,23 @@ public class LiveMapWindow extends ModWindow {
         protected void onRender(Queue queue, float alpha) {
             renderer.render(queue, getScreenX(), getScreenY(), MAP_VIEW_WIDTH, MAP_VIEW_HEIGHT,
                     viewCenterX, viewCenterY, currentZoom);
-            // TODO: Render overlays (players, villages, waypoints)
+            PlayerPosition pos = world.getPlayer().getPos();
+            com.garward.wurmmodloader.mods.livemap.data.MapOverlayData overlay = cache.getOverlay();
+            renderer.renderOverlays(queue,
+                    getScreenX(), getScreenY(), MAP_VIEW_WIDTH, MAP_VIEW_HEIGHT,
+                    viewCenterX, viewCenterY, currentZoom,
+                    overlay,
+                    pos.getTileX(), pos.getTileY());
+
+            if (hoverMouseX != Integer.MIN_VALUE) {
+                String label = renderer.hitTest(hoverMouseX, hoverMouseY,
+                        getScreenX(), getScreenY(), MAP_VIEW_WIDTH, MAP_VIEW_HEIGHT,
+                        viewCenterX, viewCenterY, currentZoom, overlay);
+                if (label != null) {
+                    renderer.drawTooltip(queue, label, hoverMouseX, hoverMouseY,
+                            getScreenX(), getScreenY(), MAP_VIEW_WIDTH, MAP_VIEW_HEIGHT);
+                }
+            }
         }
 
         @Override
@@ -159,14 +185,14 @@ public class LiveMapWindow extends ModWindow {
         }
 
         void zoomIn() {
-            if (currentZoom < 5) {
+            if (currentZoom < renderer.getMaxZoom()) {
                 currentZoom++;
                 logger.fine("[LiveMap] Zoom in: " + currentZoom);
             }
         }
 
         void zoomOut() {
-            if (currentZoom > 0) {
+            if (currentZoom > renderer.getMinZoom()) {
                 currentZoom--;
                 logger.fine("[LiveMap] Zoom out: " + currentZoom);
             }

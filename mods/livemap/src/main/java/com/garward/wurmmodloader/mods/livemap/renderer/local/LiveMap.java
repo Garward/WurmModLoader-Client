@@ -1,10 +1,10 @@
-package com.garward.mods.livemap.renderer.local;
+package com.garward.wurmmodloader.mods.livemap.renderer.local;
 
 import java.awt.image.BufferedImage;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
-import com.garward.mods.livemap.renderer.local.RenderType;
+import com.garward.wurmmodloader.mods.livemap.renderer.local.RenderType;
 
 import com.wurmonline.client.game.PlayerPosition;
 import com.wurmonline.client.game.TerrainChangeListener;

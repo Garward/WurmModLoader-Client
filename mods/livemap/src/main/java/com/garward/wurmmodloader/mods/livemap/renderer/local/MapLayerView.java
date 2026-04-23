@@ -1,9 +1,9 @@
-package com.garward.mods.livemap.renderer.local;
+package com.garward.wurmmodloader.mods.livemap.renderer.local;
 
 import java.awt.image.BufferedImage;
 
-import com.garward.mods.livemap.renderer.local.MapRenderer;
-import com.garward.mods.livemap.renderer.local.RenderType;
+import com.garward.wurmmodloader.mods.livemap.renderer.local.MapRenderer;
+import com.garward.wurmmodloader.mods.livemap.renderer.local.RenderType;
 
 import com.wurmonline.client.game.PlayerPosition;
 import com.wurmonline.client.game.World;

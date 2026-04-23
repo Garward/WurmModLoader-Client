@@ -1,4 +1,4 @@
-package com.garward.mods.livemap.renderer.local;
+package com.garward.wurmmodloader.mods.livemap.renderer.local;
 
 import java.awt.image.BufferedImage;
 
