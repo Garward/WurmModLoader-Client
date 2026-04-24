@@ -112,15 +112,28 @@ public class ProxyClientHook extends ClientHook {
             return ModType.NONE;
         }
 
-        File[] modJars = modsDir.listFiles((dir, name) -> name.endsWith(".jar"));
-        if (modJars == null || modJars.length == 0) {
+        java.util.List<File> allModJars = new java.util.ArrayList<>();
+        File[] flatJars = modsDir.listFiles((dir, name) -> name.endsWith(".jar"));
+        if (flatJars != null) {
+            java.util.Collections.addAll(allModJars, flatJars);
+        }
+        File[] subdirs = modsDir.listFiles(File::isDirectory);
+        if (subdirs != null) {
+            for (File sub : subdirs) {
+                File expected = new File(sub, sub.getName() + ".jar");
+                if (expected.isFile()) {
+                    allModJars.add(expected);
+                }
+            }
+        }
+        if (allModJars.isEmpty()) {
             return ModType.NONE;
         }
 
         boolean hasLegacy = false;
         boolean hasModern = false;
 
-        for (File modJar : modJars) {
+        for (File modJar : allModJars) {
             try (JarFile jar = new JarFile(modJar)) {
                 URL[] urls = new URL[] { modJar.toURI().toURL() };
                 URLClassLoader loader = new URLClassLoader(urls, ProxyClientHook.class.getClassLoader());

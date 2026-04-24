@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "com.garward.mods"
-version = "0.2.0"
+version = "0.3.0"
 
 java {
     toolchain {
@@ -31,6 +31,9 @@ dependencies {
 }
 
 tasks.jar {
+    archiveBaseName.set("serverpacks")
+    archiveVersion.set("")
+
     manifest {
         attributes(
             "Implementation-Title" to "ServerPacks Client Mod",
@@ -39,18 +42,28 @@ tasks.jar {
     }
 }
 
-// Copy built JAR and properties to mods directory for testing
+// Distribution zip: canonical layout (mods/<name>/<name>.jar + mods/<name>/mod.properties).
+tasks.register<Zip>("modDistribution") {
+    archiveBaseName.set("serverpacks")
+    archiveVersion.set(project.version.toString())
+
+    from(tasks.jar) {
+        into("mods/serverpacks")
+    }
+
+    from("src/dist") {
+        into("mods/serverpacks")
+    }
+}
+
+tasks.build {
+    dependsOn(tasks.named("modDistribution"))
+}
+
+// Deploy built JAR + properties directly into the local Wurm client mods dir for quick testing.
 tasks.register<Copy>("deployMod") {
     dependsOn(tasks.jar)
     from(tasks.jar.get().archiveFile)
-    from("ServerPacksClientMod.properties")
-    from("README.md")
-    into("$wurmClientDir/mods")
-    rename { fileName ->
-        when {
-            fileName.endsWith(".jar") -> "ServerPacksClientMod.jar"
-            fileName == "README.md" -> "ServerPacksClientMod.README.md"
-            else -> fileName
-        }
-    }
+    from("src/dist")
+    into("$wurmClientDir/mods/serverpacks")
 }

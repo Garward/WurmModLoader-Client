@@ -36,8 +36,10 @@ public class LegacyModLoader {
     /**
      * Loads all legacy mods from the mods/ directory.
      * Supports two loading modes:
-     * 1. Properties-based: modname.properties + modname.jar (or modname/modname.jar)
-     * 2. Direct JAR scanning: All .jar files in mods/ (fallback if no .properties found)
+     * 1. Properties-based (canonical): mods/modname.properties + mods/modname/modname.jar
+     *    (legacy flat mods/modname.jar still accepted; "classpath=" in .properties overrides)
+     * 2. Direct JAR scanning: fallback when no .properties files are present; picks up
+     *    both mods/*.jar and mods/<name>/<name>.jar
      *
      * <p>Calls lifecycle methods in order:
      * <ol>
@@ -68,20 +70,22 @@ public class LegacyModLoader {
             return;
         }
 
-        // Check for .properties files first
-        File[] propsFiles = modsDir.listFiles((dir, name) -> name.endsWith(".properties"));
+        EnabledRegistry enabled = EnabledRegistry.load(modsDir);
+        java.util.Set<String> handled = new java.util.HashSet<>();
 
+        // Phase 0: canonical self-contained subfolder legacy mods
+        loadCanonicalSubfolderMods(modsDir, handled, enabled);
+
+        // Phase 1: legacy flat-properties
+        File[] propsFiles = modsDir.listFiles((dir, name) -> name.endsWith(".properties"));
         if (propsFiles != null && propsFiles.length > 0) {
-            // Properties-based loading
-            logger.info("Found " + propsFiles.length + " .properties file(s) - using properties-based loading");
+            logger.info("Found " + propsFiles.length + " .properties file(s) - properties-based loading");
             logger.info("");
-            loadModsFromProperties(modsDir, propsFiles);
-        } else {
-            // Fallback to direct JAR scanning
-            logger.info("No .properties files found - scanning for JAR files directly");
-            logger.info("");
-            loadModsFromJars(modsDir);
+            loadModsFromProperties(modsDir, propsFiles, handled, enabled);
         }
+
+        // Phase 2: unmanaged jars
+        loadModsFromJars(modsDir, handled, enabled);
 
         if (loadedMods.isEmpty()) {
             logger.warning("No legacy mods found");
@@ -126,10 +130,51 @@ public class LegacyModLoader {
     /**
      * Loads mods using .properties files (matches server modloader structure).
      */
-    private void loadModsFromProperties(File modsDir, File[] propsFiles) {
+    private void loadCanonicalSubfolderMods(File modsDir, java.util.Set<String> handled,
+                                            EnabledRegistry enabled) {
+        File[] subdirs = modsDir.listFiles(File::isDirectory);
+        if (subdirs == null) return;
+        for (File subDir : subdirs) {
+            String modName = subDir.getName();
+            if (handled.contains(modName)) continue;
+            File modJar = new File(subDir, modName + ".jar");
+            File propsFile = new File(subDir, "mod.properties");
+            if (!modJar.exists() || !propsFile.exists()) continue;
+            if (enabled.isExplicitlyDisabled(modName)) {
+                logger.info("Skipping disabled legacy mod (enabled.json): " + modName);
+                handled.add(modName);
+                continue;
+            }
+            try {
+                logger.info("Loading canonical legacy mod: " + modName);
+                java.util.Properties props = new java.util.Properties();
+                try (java.io.FileInputStream fis = new java.io.FileInputStream(propsFile)) {
+                    props.load(fis);
+                }
+                String classname = props.getProperty("classname");
+                if (classname != null && !classname.isEmpty()) {
+                    loadLegacyModFromClassname(modJar, classname);
+                } else {
+                    loadLegacyMod(modJar);
+                }
+                handled.add(modName);
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "Failed to load canonical legacy mod: " + modName, e);
+            }
+        }
+    }
+
+    private void loadModsFromProperties(File modsDir, File[] propsFiles,
+                                        java.util.Set<String> handled, EnabledRegistry enabled) {
         for (File propsFile : propsFiles) {
             try {
                 String modName = propsFile.getName().replaceAll("\\.properties$", "");
+                if (handled.contains(modName)) continue;
+                if (enabled.isExplicitlyDisabled(modName)) {
+                    logger.info("Skipping disabled legacy mod (enabled.json): " + modName);
+                    handled.add(modName);
+                    continue;
+                }
                 logger.info("Loading legacy mod from properties: " + modName);
 
                 java.util.Properties props = new java.util.Properties();
@@ -137,12 +182,22 @@ public class LegacyModLoader {
                     props.load(fis);
                 }
 
-                // Get classpath from properties (e.g., "modname/modname.jar" or "modname.jar")
-                String classpath = props.getProperty("classpath", modName + ".jar");
-                File modJar = new File(modsDir, classpath);
+                // Canonical layout: mods/<name>/<name>.jar (matches server-side modloader).
+                // Legacy flat layout (mods/<name>.jar) is still accepted as a fallback.
+                // A "classpath=" entry in the .properties overrides both.
+                String explicitClasspath = props.getProperty("classpath");
+                File modJar;
+                if (explicitClasspath != null && !explicitClasspath.isEmpty()) {
+                    modJar = new File(modsDir, explicitClasspath);
+                } else {
+                    File subfolderJar = new File(modsDir, modName + "/" + modName + ".jar");
+                    File flatJar = new File(modsDir, modName + ".jar");
+                    modJar = subfolderJar.exists() ? subfolderJar : flatJar;
+                }
 
                 if (!modJar.exists()) {
-                    logger.warning("  JAR not found: " + classpath);
+                    logger.warning("  JAR not found for mod '" + modName + "' (checked "
+                            + modName + "/" + modName + ".jar and " + modName + ".jar)");
                     continue;
                 }
 
@@ -155,6 +210,7 @@ public class LegacyModLoader {
                     // No classname specified - scan JAR for WurmClientMod implementations
                     loadLegacyMod(modJar);
                 }
+                handled.add(modName);
 
             } catch (Exception e) {
                 logger.log(Level.SEVERE, "Failed to load legacy mod from properties: " + propsFile.getName(), e);
@@ -164,20 +220,53 @@ public class LegacyModLoader {
 
     /**
      * Loads mods by scanning all JAR files directly (simple mode).
+     *
+     * <p>Picks up both the canonical subfolder layout ({@code mods/<name>/<name>.jar})
+     * and the legacy flat layout ({@code mods/<name>.jar}).</p>
      */
-    private void loadModsFromJars(File modsDir) {
-        File[] modJars = modsDir.listFiles((dir, name) -> name.endsWith(".jar"));
-        if (modJars == null || modJars.length == 0) {
-            logger.info("No mod JARs found in mods/ directory");
-            logger.info("Place mod JAR files in: " + modsDir.getAbsolutePath());
+    private void loadModsFromJars(File modsDir, java.util.Set<String> handled, EnabledRegistry enabled) {
+        java.util.List<File> modJarList = new java.util.ArrayList<>();
+
+        File[] flatJars = modsDir.listFiles((dir, name) -> name.endsWith(".jar"));
+        if (flatJars != null) {
+            for (File j : flatJars) {
+                String modName = j.getName().replaceAll("\\.jar$", "");
+                if (handled.contains(modName)) continue;
+                if (enabled.isExplicitlyDisabled(modName)) {
+                    logger.info("Skipping disabled legacy mod (enabled.json): " + modName);
+                    handled.add(modName);
+                    continue;
+                }
+                modJarList.add(j);
+                handled.add(modName);
+            }
+        }
+
+        File[] subdirs = modsDir.listFiles(File::isDirectory);
+        if (subdirs != null) {
+            for (File sub : subdirs) {
+                String modName = sub.getName();
+                if (handled.contains(modName)) continue;
+                File expected = new File(sub, modName + ".jar");
+                if (!expected.exists()) continue;
+                if (enabled.isExplicitlyDisabled(modName)) {
+                    logger.info("Skipping disabled legacy mod (enabled.json): " + modName);
+                    handled.add(modName);
+                    continue;
+                }
+                modJarList.add(expected);
+                handled.add(modName);
+            }
+        }
+
+        if (modJarList.isEmpty()) {
             return;
         }
 
-        logger.info("Found " + modJars.length + " mod JAR(s)");
+        logger.info("Found " + modJarList.size() + " unmanaged legacy mod JAR(s)");
         logger.info("");
 
-        // Load all mods first
-        for (File modJar : modJars) {
+        for (File modJar : modJarList) {
             loadLegacyMod(modJar);
         }
     }

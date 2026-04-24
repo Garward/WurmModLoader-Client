@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "com.garward.mods"
-version = "0.2.0"
+version = "0.3.0"
 
 java {
     toolchain {
@@ -38,7 +38,7 @@ tasks.jar {
     }
 }
 
-// Distribution zip: matches the server-mod layout (mods/<name>/<name>.jar + mods/<name>.properties).
+// Distribution zip: canonical layout (mods/<name>/<name>.jar + mods/<name>/mod.properties).
 tasks.register<Zip>("modDistribution") {
     archiveBaseName.set("livemap")
     archiveVersion.set(project.version.toString())
@@ -47,9 +47,8 @@ tasks.register<Zip>("modDistribution") {
         into("mods/livemap")
     }
 
-    from("LiveMapClientMod.properties") {
-        into("mods")
-        rename { "livemap.properties" }
+    from("src/dist") {
+        into("mods/livemap")
     }
 }
 
@@ -61,8 +60,6 @@ tasks.build {
 tasks.register<Copy>("deployMod") {
     dependsOn(tasks.jar)
     from(tasks.jar.get().archiveFile)
-    from("LiveMapClientMod.properties") {
-        rename { "livemap.properties" }
-    }
-    into("$wurmClientDir/mods")
+    from("src/dist")
+    into("$wurmClientDir/mods/livemap")
 }

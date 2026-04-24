@@ -30,6 +30,6 @@ tasks.jar {
 tasks.register<Copy>("deployMod") {
     dependsOn(tasks.jar)
     from(tasks.jar.get().archiveFile)
-    from("HelloMod.properties")
-    into("$wurmClientDir/mods")
+    from("src/dist")
+    into("$wurmClientDir/mods/hellomod")
 }

@@ -58,4 +58,4 @@ All output prints to the in-game console and is mirrored to `client.log`.
 
 ## Version
 
-0.2.0
+0.3.0

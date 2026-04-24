@@ -1,5 +1,19 @@
 rootProject.name = "wurmmodloader-client"
 
+// --- Local property overrides (gitignored) ---
+// `gradle.properties.local` at this directory carries personal paths like
+// wurmServerDir / wurmClientDir. Loaded into Gradle project properties so the
+// build sees them just like committed gradle.properties entries.
+val localProps = file("gradle.properties.local")
+if (localProps.exists()) {
+    val props = java.util.Properties()
+    localProps.inputStream().use { props.load(it) }
+    gradle.beforeProject {
+        props.forEach { k, v -> extra[k.toString()] = v.toString() }
+    }
+}
+
+
 include(
     "wurmmodloader-client-api",
     "wurmmodloader-client-core",
@@ -18,11 +32,4 @@ project(":mods:serverpacks").projectDir = file("mods/serverpacks")
 include("mods:livemap")
 project(":mods:livemap").projectDir = file("mods/livemap")
 
-include("mods:wurmesp")
-project(":mods:wurmesp").projectDir = file("mods/wurmesp")
-
-include("mods:compass")
-project(":mods:compass").projectDir = file("mods/compass")
-
-include("mods:action")
-project(":mods:action").projectDir = file("mods/action")
+// wurmesp, compass, action moved to WurmModLoader-CommunityMods/client-mods/

@@ -9,7 +9,7 @@ Pairs with [WurmModLoader (server)](https://github.com/Garward/WurmModLoader). E
 **Framework**
 
 - Thread-safe event bus with `@SubscribeEvent` scanning, priority ordering, cancellation
-- 20+ bytecode patches registered through a central `PatchRegistry`, applied at class-load time via a Java agent (`ClientPatcher.premain`)
+- 20+ bytecode patches baked directly into `client.jar` on disk via the standalone `patch-client.sh` / `patch-client.bat` (no Java agent / launch-script required — launch Wurm normally through Steam after patching). The agent path still exists for dev, but the patcher is the canonical shipping flow
 - Isolated `URLClassLoader` per mod; two loading modes (properties-file + JAR-scan)
 - GUI access-widening: 8 Wurm client GUI classes exposed to mods without reflection gymnastics
 - ModComm client channel ported from Ago, integrated with the event bus
@@ -109,7 +109,7 @@ Modules:
 
 ## Status
 
-**v0.2.0** — event bus, bytecode patching, mod loading, ModComm, and GUI access-widening are all working. Two substantive reference mods ship in the tree. Docs cover the common use cases (getting started, layout, lifecycle, client-server bridge, widening/GUI access, legacy compat, troubleshooting).
+**v0.3.0** — event bus, bytecode patching, mod loading, ModComm, and GUI access-widening are all working. The canonical shipping path is now the standalone `patch-client.sh` / `patch-client.bat` patcher (bakes the modloader + access-widenings + serverpacks cross-pack resolver into `client.jar` on disk, so launching through Steam "just works" — no `-javaagent` or custom launch script needed). Two substantive reference mods ship in the tree. Docs cover the common use cases (getting started, layout, lifecycle, client-server bridge, widening/GUI access, legacy compat, troubleshooting).
 
 **Not there yet:**
 - Legacy mod bridge — `wurmmodloader-client-legacy` currently only exposes the old `WurmClientMod` interface; no adapter yet that runs an Ago mod unmodified. Porting is straightforward in the meantime (see [`docs/guides/legacy-mod-compat.md`](docs/guides/legacy-mod-compat.md))

@@ -59,6 +59,20 @@ if ./gradlew clean build dist; then
     unzip -l build/distributions/WurmModloader-Client-*.zip 2>/dev/null | grep -E "(jar|sh|bat|md)" | tail -n +4 | head -n -2
     echo ""
 
+    # Sync client SDK jars into sibling CommunityMods/libs/ (if the repo exists).
+    COMMUNITY_LIBS="$PROJECT_DIR/../WurmModLoader-CommunityMods/libs"
+    if [ -d "$COMMUNITY_LIBS" ]; then
+        echo -e "${YELLOW}🔗 Syncing client SDK jars → $COMMUNITY_LIBS${NC}"
+        rm -f "$COMMUNITY_LIBS"/wurmmodloader-client-{api,core,legacy}-*.jar
+        for m in api core legacy; do
+            for f in "$PROJECT_DIR"/wurmmodloader-client-"$m"/build/libs/wurmmodloader-client-"$m"-*.jar; do
+                case "$f" in *-sources.jar|*-javadoc.jar) continue ;; esac
+                [ -f "$f" ] && cp "$f" "$COMMUNITY_LIBS/" && echo "   + $(basename "$f")"
+            done
+        done
+        echo ""
+    fi
+
     echo -e "${GREEN}Ready to deploy! Run:${NC} ${BLUE}./deploy.sh${NC}"
     echo ""
 
