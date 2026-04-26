@@ -236,7 +236,9 @@ public class LiveMapClientMod {
      */
     public void requestTile(int zoom, int tileX, int tileY) {
         if (httpClient == null) {
-            logger.warning("[LiveMap] Cannot request tile - not initialized");
+            // Server didn't advertise a livemap HTTP endpoint (or the discovery
+            // packet hasn't arrived yet). The renderer keeps calling us per tile
+            // per frame, so logging here floods the client log — silently no-op.
             return;
         }
 
@@ -284,17 +286,19 @@ public class LiveMapClientMod {
     }
 
     /**
-     * Parse {@code /livemap/api/config} JSON and remember mapSize/tileSize.
+     * Parse {@code /livemap/data/config.json} and remember mapSize/tileSize.
      * Extraction is regex-based to avoid a JSON dependency — server response
-     * is a tiny flat object like {@code {"mapSize":8192,"tileSize":256,...}}.
+     * is a tiny flat object whose keys mirror WurmMapGen's
+     * {@code ConfigFileGen} output ({@code actualMapSize}, {@code mapTileSize},
+     * {@code mapMinZoom}, {@code mapMaxZoom}).
      */
     private void applyServerConfig(String json) {
         if (json == null) return;
         try {
-            int ms = extractInt(json, "mapSize");
-            int ts = extractInt(json, "tileSize");
-            int minZ = extractSignedInt(json, "minZoom");
-            int maxZ = extractSignedInt(json, "maxZoom");
+            int ms = extractInt(json, "actualMapSize");
+            int ts = extractInt(json, "mapTileSize");
+            int minZ = extractSignedInt(json, "mapMinZoom");
+            int maxZ = extractSignedInt(json, "mapMaxZoom");
             if (ms > 0 && ts > 0) {
                 serverMapSize = ms;
                 serverTileSize = ts;

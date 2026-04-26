@@ -58,6 +58,11 @@ public class ModStackPanel extends ContainerComponent {
     public ModStackPanel addChild(FlexComponent child, LayoutHints h) {
         children.add(child);
         hints.put(child, h != null ? h : new LayoutHints());
+        // Establish parent so WurmComponent.setLocation2 doesn't clamp the
+        // child to screen bounds (parent == null is the "I'm a top-level
+        // window" signal). Without this, performLayout's setLocation snaps
+        // children to screen edges and produces flickery layout artifacts.
+        child.parent = this;
         layout();
         return this;
     }

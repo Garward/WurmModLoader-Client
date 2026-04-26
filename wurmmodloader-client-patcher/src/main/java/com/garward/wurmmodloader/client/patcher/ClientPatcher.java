@@ -332,6 +332,25 @@ public class ClientPatcher {
             "com/wurmonline/client/resources/Resources.class",
             new com.garward.wurmmodloader.client.core.bytecode.patches.serverpacks.ResourcesFindPackPatch()
         );
+        // Log unresolved .ogg lookups — vanilla swallows the failure silently
+        // and falls back to a corrupt sentinel; this gives us the original
+        // resource name so we can fix the pack referencing it.
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/resources/Resources.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.SoundResourceLoggingPatch()
+        );
+        // Append filePath to OggInputStream SEVERE logs so we can identify
+        // corrupt samples inside packs (vanilla logs the exception alone).
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/sound/formats/OggInputStream.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.OggInputStreamPathLoggingPatch()
+        );
+        // Diagnostic: log every sample SoundEngine plays. Used to identify
+        // unexplained looping audio.
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/sound/SoundEngine.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.SoundPlayLoggingPatch()
+        );
         addPatch(accessWideningPatches,
             "com/wurmonline/client/resources/PackResourceUrl.class",
             new com.garward.wurmmodloader.client.core.bytecode.patches.serverpacks.PackResourceUrlRawFilePathPatch()
@@ -407,6 +426,19 @@ public class ClientPatcher {
                     patchedBytes = prePatched.get(entry.getName());
                     patchedClasses++;
                 }
+                // Vanilla ships res/missingsound.ogg with a CRC mismatch that
+                // makes the Ogg parser fail and SoundCache recurse on its own
+                // sentinel — the looping garbage some users hear after login.
+                // Replace with a valid silent ogg shipped inside the patcher.
+                else if (entry.getName().equals("com/wurmonline/client/resources/res/missingsound.ogg")
+                        || entry.getName().equals("target/classes/com/wurmonline/client/resources/res/missingsound.ogg")) {
+                    byte[] silent = loadEmbeddedResource("/com/garward/wurmmodloader/client/patcher/replacements/missingsound.ogg");
+                    if (silent != null) {
+                        logger.info("  Replacing " + entry.getName() + " (vanilla file is corrupt)...");
+                        patchedBytes = silent;
+                        patchedClasses++;
+                    }
+                }
                 // Data-driven: bake any registered access-widening patch into the JAR.
                 else if (accessWideningPatches.containsKey(entry.getName())) {
                     java.util.List<BytecodePatch> patches = accessWideningPatches.get(entry.getName());
@@ -461,6 +493,20 @@ public class ClientPatcher {
 
     private static void addPatch(Map<String, java.util.List<BytecodePatch>> map, String entry, BytecodePatch patch) {
         map.computeIfAbsent(entry, k -> new java.util.ArrayList<>()).add(patch);
+    }
+
+    private static byte[] loadEmbeddedResource(String path) {
+        try (InputStream in = ClientPatcher.class.getResourceAsStream(path)) {
+            if (in == null) return null;
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+            return out.toByteArray();
+        } catch (java.io.IOException e) {
+            logger.warning("Failed to load embedded resource " + path + ": " + e.getMessage());
+            return null;
+        }
     }
 
     /**

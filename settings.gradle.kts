@@ -32,4 +32,7 @@ project(":mods:serverpacks").projectDir = file("mods/serverpacks")
 include("mods:livemap")
 project(":mods:livemap").projectDir = file("mods/livemap")
 
+include("mods:declarativeui")
+project(":mods:declarativeui").projectDir = file("mods/declarativeui")
+
 // wurmesp, compass, action moved to WurmModLoader-CommunityMods/client-mods/

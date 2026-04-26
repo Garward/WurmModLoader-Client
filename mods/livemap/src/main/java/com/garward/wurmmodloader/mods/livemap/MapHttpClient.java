@@ -16,9 +16,11 @@ import java.util.logging.Logger;
  *
  * <p>This client connects to the server's HTTP endpoints to fetch:
  * <ul>
- *   <li>/livemap/api/config - Map configuration (size, tile size, max zoom)</li>
- *   <li>/livemap/api/data - Live data (players, villages, altars)</li>
- *   <li>/livemap/tile/{z}/{x}/{y}.png - Map tiles</li>
+ *   <li>{@code /livemap/data/config.json} - Map configuration</li>
+ *   <li>{@code /livemap/data/players.json}, {@code villages.json},
+ *       {@code guardtowers.json} - Live overlay data (combined client-side
+ *       into the legacy {@code {players,villages,altars,towers}} shape)</li>
+ *   <li>{@code /livemap/images/{x}-{y}.png} - Single-zoom static tile grid</li>
  * </ul>
  *
  * <p>All fetch operations run in background threads to avoid blocking the client.
@@ -44,8 +46,7 @@ public class MapHttpClient {
      */
     public String fetchConfig() {
         try {
-            String url = serverUrl + "/livemap/api/config";
-            return fetchJson(url);
+            return fetchJson(serverUrl + "/livemap/data/config.json");
         } catch (Exception e) {
             logger.log(Level.WARNING, "[LiveMap] Failed to fetch config", e);
             return null;
@@ -62,30 +63,62 @@ public class MapHttpClient {
     }
 
     /**
-     * Fetch live map data scoped to a viewer. The server filters the
-     * {@code players[]} array to fellow villagers of {@code viewerName}; when
-     * {@code viewerName} is null, no players are returned.
+     * Fetch live map data and combine the three split server JSONs
+     * ({@code players.json}, {@code villages.json}, {@code guardtowers.json})
+     * into the legacy combined shape {@code {players,villages,altars,towers}}
+     * the parser expects.
+     *
+     * <p>The {@code viewerName} parameter is currently ignored — the public
+     * HTTP feed is unscoped (the village-gated per-viewer feed only exists
+     * over the {@code livemap.markers} ModComm channel).
      */
     public void fetchDataAsync(String viewerName, Consumer<String> callback) {
         new Thread(() -> {
             try {
-                String url;
-                if (viewerName == null || viewerName.isEmpty()) {
-                    url = serverUrl + "/livemap/api/data";
-                } else {
-                    url = serverUrl + "/livemap/api/data/me/"
-                        + java.net.URLEncoder.encode(viewerName, "UTF-8");
-                }
-                String json = fetchJson(url);
+                String players  = fetchJson(serverUrl + "/livemap/data/players.json");
+                String villages = fetchJson(serverUrl + "/livemap/data/villages.json");
+                String towers   = fetchJson(serverUrl + "/livemap/data/guardtowers.json");
 
-                if (json != null && callback != null) {
-                    callback.accept(json);
-                    logger.fine("[LiveMap] Fetched map data: " + json.length() + " bytes");
+                String combined = "{"
+                        + "\"players\":"  + extractArrayBody(players,  "players")     + ","
+                        + "\"villages\":" + extractArrayBody(villages, "villages")    + ","
+                        + "\"altars\":[],"
+                        + "\"towers\":"   + extractArrayBody(towers,   "guardtowers")
+                        + "}";
+
+                if (callback != null) {
+                    callback.accept(combined);
+                    logger.fine("[LiveMap] Fetched map data: " + combined.length() + " bytes");
                 }
             } catch (Exception e) {
                 logger.log(Level.WARNING, "[LiveMap] Failed to fetch map data", e);
             }
         }, "LiveMap-DataFetcher").start();
+    }
+
+    /**
+     * Pulls the named array out of a tiny flat object like
+     * {@code {"players":[...]}} and returns it as a literal JSON array
+     * string (with brackets). Returns {@code "[]"} when the source is
+     * null/empty or the key is missing — keeps the combined output valid
+     * even if one of the three endpoints fails.
+     */
+    private static String extractArrayBody(String json, String key) {
+        if (json == null || json.isEmpty()) return "[]";
+        int keyIdx = json.indexOf("\"" + key + "\"");
+        if (keyIdx < 0) return "[]";
+        int open = json.indexOf('[', keyIdx);
+        if (open < 0) return "[]";
+        int depth = 0;
+        for (int i = open; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (c == '[') depth++;
+            else if (c == ']') {
+                depth--;
+                if (depth == 0) return json.substring(open, i + 1);
+            }
+        }
+        return "[]";
     }
 
     /**
@@ -100,7 +133,10 @@ public class MapHttpClient {
         new Thread(() -> {
             byte[] pngData = null;
             try {
-                String url = String.format("%s/livemap/tile/%d/%d/%d.png", serverUrl, zoom, tileX, tileY);
+                // Server emits a single-zoom static tile grid; the zoom
+                // parameter is kept for callback signature compatibility but
+                // not used in the URL.
+                String url = String.format("%s/livemap/images/%d-%d.png", serverUrl, tileX, tileY);
                 pngData = fetchBytes(url);
 
                 if (pngData != null && pngData.length > 0) {

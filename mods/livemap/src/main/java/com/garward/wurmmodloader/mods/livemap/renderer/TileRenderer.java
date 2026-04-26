@@ -33,24 +33,33 @@ public class TileRenderer {
     // Defaults until server config is received. Replaced by setMapConfig().
     private int tileSize = 256;
     private int mapSize = 8192;
-    // Server: baseTilesPerSide = ceil(mapSize / tileSize). Positive zoom doubles
-    // tile count per side; negative zoom halves it (coarser overview tiles).
+    // baseTilesPerSide = ceil(mapSize / tileSize). The server emits a single
+    // static tile grid at this resolution — there is no pyramid. The client's
+    // `zoom` is purely a visual scale exponent: each step doubles/halves the
+    // displayed pixel size of each tile, while the underlying tile grid we
+    // fetch and cache stays the same.
     private int baseTilesPerSide = 32;
-    private int minZoom = -2;
-    private int maxZoom = 5;
+    private int minZoom = -6;
+    private int maxZoom = 3;
 
-    /** Tile count along one side of the map at this zoom level. */
+    /** Tile count along one side of the map. The server emits a single grid,
+     *  so this no longer varies with zoom. */
     public int tilesPerSideAt(int zoom) {
-        if (zoom >= 0) return baseTilesPerSide << zoom;
-        return Math.max(1, baseTilesPerSide >> (-zoom));
+        return baseTilesPerSide;
+    }
+
+    /** Displayed pixel size of a single tile at the given zoom level. */
+    private float displayTileSize(int zoom) {
+        return tileSize * (float) Math.pow(2.0, zoom);
     }
 
     public int getMinZoom() { return minZoom; }
     public int getMaxZoom() { return maxZoom; }
 
     public void setZoomRange(int min, int max) {
-        this.minZoom = min;
-        this.maxZoom = max;
+        // Server now reports the Leaflet-internal zoom range from
+        // WurmMapGen's ConfigFileGen, which doesn't map onto our scale
+        // exponent. Ignore it and keep the local defaults.
     }
 
     private final MapDataCache cache;
@@ -81,8 +90,8 @@ public class TileRenderer {
 
     /** World units per screen pixel at the given zoom (for drag math, overlays). */
     public float getWorldUnitsPerPixel(int zoom) {
-        float worldUnitsPerTile = (float) mapSize / (tilesPerSideAt(zoom));
-        return worldUnitsPerTile / tileSize;
+        float worldUnitsPerTile = (float) mapSize / baseTilesPerSide;
+        return worldUnitsPerTile / displayTileSize(zoom);
     }
 
     /**
@@ -107,14 +116,15 @@ public class TileRenderer {
     public void render(Queue queue, int screenX, int screenY, int screenWidth, int screenHeight,
                       float worldCenterX, float worldCenterY, int zoom) {
 
-        float worldUnitsPerTile = (float) mapSize / (tilesPerSideAt(zoom));
+        float worldUnitsPerTile = (float) mapSize / baseTilesPerSide;
         float centerTileX = worldCenterX / worldUnitsPerTile;
         float centerTileY = worldCenterY / worldUnitsPerTile;
 
-        float tilesWide = (float) screenWidth / tileSize;
-        float tilesHigh = (float) screenHeight / tileSize;
+        float dts = displayTileSize(zoom);
+        float tilesWide = (float) screenWidth / dts;
+        float tilesHigh = (float) screenHeight / dts;
 
-        int maxTile = getMaxTileCoord(zoom);
+        int maxTile = baseTilesPerSide - 1;
         int minTileX = Math.max(0, (int) Math.floor(centerTileX - tilesWide / 2f) - 1);
         int maxTileX = Math.min(maxTile, (int) Math.ceil(centerTileX + tilesWide / 2f) + 1);
         int minTileY = Math.max(0, (int) Math.floor(centerTileY - tilesHigh / 2f) - 1);
@@ -125,21 +135,22 @@ public class TileRenderer {
 
         for (int tileY = minTileY; tileY <= maxTileY; tileY++) {
             for (int tileX = minTileX; tileX <= maxTileX; tileX++) {
-
-                BufferedImage tileImage = cache.getTile(zoom, tileX, tileY);
+                // Always fetch/cache at the single native zoom (0); user
+                // zoom only changes the displayed tile size.
+                BufferedImage tileImage = cache.getTile(0, tileX, tileY);
 
                 if (tileImage != null) {
-                    ImageTexture texture = getOrCreateTexture(zoom, tileX, tileY, tileImage);
+                    ImageTexture texture = getOrCreateTexture(0, tileX, tileY, tileImage);
 
-                    float tilePosX = screenCenterX + (tileX - centerTileX) * tileSize;
-                    float tilePosY = screenCenterY + (tileY - centerTileY) * tileSize;
+                    float tilePosX = screenCenterX + (tileX - centerTileX) * dts;
+                    float tilePosY = screenCenterY + (tileY - centerTileY) * dts;
 
                     Renderer.texturedQuadAlphaBlend(queue, texture, 1.0f, 1.0f, 1.0f, 1.0f,
-                            tilePosX, tilePosY, tileSize, tileSize,
+                            tilePosX, tilePosY, dts, dts,
                             0.0f, 0.0f, 1.0f, 1.0f);
 
                 } else if (tileRequestCallback != null) {
-                    tileRequestCallback.requestTile(zoom, tileX, tileY);
+                    tileRequestCallback.requestTile(0, tileX, tileY);
                 }
             }
         }

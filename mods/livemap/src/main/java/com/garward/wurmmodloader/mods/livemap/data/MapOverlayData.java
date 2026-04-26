@@ -99,19 +99,38 @@ public final class MapOverlayData {
     private static List<Village> parseVillages(String body) {
         List<Village> out = new ArrayList<>();
         for (String obj : splitObjects(body)) {
-            int sx = intField(obj, "startX"), sy = intField(obj, "startY");
-            int ex = intField(obj, "endX"),   ey = intField(obj, "endY");
-            int tx = intField(obj, "tokenX"), ty = intField(obj, "tokenY");
-            // Older servers (before the enrichment pass) don't emit tokenX/Y.
-            // Fall back to deed center so villages still plot somewhere sane.
+            int[] borders = intArrayField(obj, "borders");
+            int sx = borders.length > 0 ? borders[0] : intField(obj, "startX");
+            int sy = borders.length > 1 ? borders[1] : intField(obj, "startY");
+            int ex = borders.length > 2 ? borders[2] : intField(obj, "endX");
+            int ey = borders.length > 3 ? borders[3] : intField(obj, "endY");
+            // Server's villages.json emits the token as plain x/y; fall back
+            // to legacy tokenX/Y or deed center for older servers.
+            int tx = intField(obj, "x");
+            int ty = intField(obj, "y");
+            if (tx <= 0) tx = intField(obj, "tokenX");
+            if (ty <= 0) ty = intField(obj, "tokenY");
             if (tx <= 0) tx = (sx + ex) / 2;
             if (ty <= 0) ty = (sy + ey) / 2;
             out.add(new Village(
                     str(obj, "name"), sx, sy, ex, ey,
                     str(obj, "type"), str(obj, "mayor"), str(obj, "motto"),
-                    intField(obj, "citizens"),
+                    intField(obj, "citizenCount"),
                     boolField(obj, "permanent"),
                     tx, ty));
+        }
+        return out;
+    }
+
+    private static int[] intArrayField(String obj, String key) {
+        Matcher m = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*\\[([^\\]]*)\\]").matcher(obj);
+        if (!m.find()) return new int[0];
+        String body = m.group(1).trim();
+        if (body.isEmpty()) return new int[0];
+        String[] parts = body.split(",");
+        int[] out = new int[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            try { out[i] = Integer.parseInt(parts[i].trim()); } catch (NumberFormatException ignored) {}
         }
         return out;
     }
@@ -128,7 +147,7 @@ public final class MapOverlayData {
         List<Tower> out = new ArrayList<>();
         for (String obj : splitObjects(body)) {
             out.add(new Tower(str(obj, "name"), intField(obj, "x"), intField(obj, "y"),
-                    (byte) intField(obj, "kingdom"), floatField(obj, "damage")));
+                    (byte) intField(obj, "kingdom"), floatField(obj, "dmg")));
         }
         return out;
     }
