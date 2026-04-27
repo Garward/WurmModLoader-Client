@@ -680,4 +680,17 @@ public class ProxyClientHook extends ClientHook {
     public static float getCurrentStamina() {
         return getInstance().getLastStamina();
     }
+
+    // ========== EVENT MESSAGE (textMessage overloads) ==========
+
+    /**
+     * Static entry point fired by the {@code ServerConnectionListenerClass.textMessage}
+     * patches on both the single-color and multicolor overloads. Returns
+     * {@code true} if any subscriber cancelled — the patch then returns,
+     * suppressing vanilla display.
+     */
+    public static boolean fireClientEventMessageReceivedEvent(String window, String text, byte type) {
+        try { return getInstance().fireClientEventMessage(window, text, type); }
+        catch (Throwable t) { t.printStackTrace(); return false; }
+    }
 }

@@ -277,6 +277,12 @@ public class ClientPatcher {
             "com/wurmonline/client/comm/ServerConnectionListenerClass.class",
             new com.garward.wurmmodloader.client.core.bytecode.patches.ServerConnectionStaminaPatch()
         );
+        // Event/chat message hook — fires ClientEventMessageReceivedEvent on
+        // both textMessage overloads so mods can observe / filter server text.
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/comm/ServerConnectionListenerClass.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.ServerConnectionTextMessagePatch()
+        );
         addPatch(accessWideningPatches,
             "com/wurmonline/client/renderer/WorldRender.class",
             new com.garward.wurmmodloader.client.core.bytecode.patches.WorldRenderPatch()

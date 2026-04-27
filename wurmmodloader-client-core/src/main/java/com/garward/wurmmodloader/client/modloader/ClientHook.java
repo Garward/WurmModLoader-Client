@@ -12,6 +12,7 @@ import com.garward.wurmmodloader.client.api.events.client.npc.ClientNpcUpdateEve
 import com.garward.wurmmodloader.client.api.events.client.combat.ClientCombatAnimationStartEvent;
 import com.garward.wurmmodloader.client.api.events.client.combat.ClientCombatAnimationEndEvent;
 import com.garward.wurmmodloader.client.api.events.client.ClientStaminaChangedEvent;
+import com.garward.wurmmodloader.client.api.events.client.ClientEventMessageReceivedEvent;
 import com.garward.wurmmodloader.client.core.event.EventBus;
 
 import java.util.logging.Logger;
@@ -506,6 +507,21 @@ public class ClientHook {
      */
     public float getLastStamina() {
         return lastStamina;
+    }
+
+    // ========== EVENT MESSAGE EVENTS ==========
+
+    /**
+     * Fire {@link ClientEventMessageReceivedEvent}. Called from the textMessage
+     * patches on both the single-color and multicolor overloads.
+     *
+     * @return {@code true} if a subscriber cancelled the message (i.e. the patch
+     *         should suppress vanilla display); {@code false} to let it through.
+     */
+    public boolean fireClientEventMessage(String window, String text, byte type) {
+        ClientEventMessageReceivedEvent event = new ClientEventMessageReceivedEvent(window, text, type);
+        postEvent(event);
+        return event.isCancelled();
     }
 
     /**
