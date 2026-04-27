@@ -11,6 +11,7 @@ import com.garward.wurmmodloader.client.api.events.client.movement.Authoritative
 import com.garward.wurmmodloader.client.api.events.client.npc.ClientNpcUpdateEvent;
 import com.garward.wurmmodloader.client.api.events.client.combat.ClientCombatAnimationStartEvent;
 import com.garward.wurmmodloader.client.api.events.client.combat.ClientCombatAnimationEndEvent;
+import com.garward.wurmmodloader.client.api.events.client.ClientStaminaChangedEvent;
 import com.garward.wurmmodloader.client.core.event.EventBus;
 
 import java.util.logging.Logger;
@@ -480,6 +481,31 @@ public class ClientHook {
         com.garward.wurmmodloader.client.api.events.client.FOVChangedEvent event =
             new com.garward.wurmmodloader.client.api.events.client.FOVChangedEvent(oldFOV, newFOV);
         postEvent(event);
+    }
+
+    // ========== STAMINA EVENTS ==========
+
+    private volatile float lastStamina = Float.NaN;
+
+    /**
+     * Fire ClientStaminaChangedEvent. Tracks the previous value so subscribers
+     * see both old and new stamina; first event of the session has
+     * {@code oldStamina = Float.NaN}.
+     *
+     * @param newStamina the new stamina value, 0.0–1.0
+     */
+    public void fireClientStaminaChanged(float newStamina) {
+        float old = this.lastStamina;
+        this.lastStamina = newStamina;
+        postEvent(new ClientStaminaChangedEvent(old, newStamina));
+    }
+
+    /**
+     * Returns the most recent stamina value seen by the hook, or
+     * {@code Float.NaN} if no CMD_STAMINA packet has arrived yet.
+     */
+    public float getLastStamina() {
+        return lastStamina;
     }
 
     /**

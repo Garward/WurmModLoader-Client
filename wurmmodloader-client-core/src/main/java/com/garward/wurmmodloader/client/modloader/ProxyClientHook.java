@@ -659,4 +659,25 @@ public class ProxyClientHook extends ClientHook {
             logger.warning("[ProxyClientHook] FOV key read failed: " + e.getMessage());
         }
     }
+
+    // ========== STAMINA ==========
+
+    /**
+     * Static entry point fired by the {@code ServerConnectionListenerClass.setStamina}
+     * patch on every CMD_STAMINA packet.
+     *
+     * @param newStamina new stamina value, 0.0–1.0
+     */
+    public static void fireClientStaminaChangedEvent(float newStamina) {
+        try { getInstance().fireClientStaminaChanged(newStamina); }
+        catch (Throwable t) { t.printStackTrace(); }
+    }
+
+    /**
+     * Snapshot accessor — most recent stamina value observed, or {@code Float.NaN}
+     * before the first CMD_STAMINA packet of the session.
+     */
+    public static float getCurrentStamina() {
+        return getInstance().getLastStamina();
+    }
 }

@@ -271,6 +271,12 @@ public class ClientPatcher {
             "com/wurmonline/client/options/RangeOption.class",
             new com.garward.wurmmodloader.client.core.bytecode.patches.FOVChangePatch()
         );
+        // Stamina change hook — fires ClientStaminaChangedEvent on every
+        // CMD_STAMINA packet so mods (automine, etc.) can react to stamina deltas.
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/comm/ServerConnectionListenerClass.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.ServerConnectionStaminaPatch()
+        );
         addPatch(accessWideningPatches,
             "com/wurmonline/client/renderer/WorldRender.class",
             new com.garward.wurmmodloader.client.core.bytecode.patches.WorldRenderPatch()
