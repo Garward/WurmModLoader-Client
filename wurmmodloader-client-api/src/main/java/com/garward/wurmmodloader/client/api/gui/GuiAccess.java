@@ -15,17 +15,29 @@ import java.lang.reflect.Field;
  */
 final class GuiAccess {
 
+    private static final Field X_FIELD;
+    private static final Field Y_FIELD;
     private static final Field WIDTH_FIELD;
     private static final Field HEIGHT_FIELD;
     private static final Field BACKGROUND_TEXTURE_2_FIELD;
 
     static {
+        X_FIELD = lookupField("x");
+        Y_FIELD = lookupField("y");
         WIDTH_FIELD = lookupField("width");
         HEIGHT_FIELD = lookupField("height");
         BACKGROUND_TEXTURE_2_FIELD = lookupField("backgroundTexture2");
     }
 
     private GuiAccess() {}
+
+    static int getX(WurmComponent c) {
+        return readInt(X_FIELD, c);
+    }
+
+    static int getY(WurmComponent c) {
+        return readInt(Y_FIELD, c);
+    }
 
     static int getWidth(WurmComponent c) {
         return readInt(WIDTH_FIELD, c);

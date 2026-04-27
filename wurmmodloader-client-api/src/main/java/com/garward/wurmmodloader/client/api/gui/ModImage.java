@@ -16,12 +16,16 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Static textured-quad widget. Resolves an image URI in one of three forms:
+ * Static textured-quad widget. Resolves an image URI in one of four forms:
  *
  * <ul>
  *   <li>{@code classpath:/path/to/file.png} — loaded from the supplied resource
  *       anchor's classloader (mod JAR resources)</li>
  *   <li>{@code file:/abs/path.png} — loaded from disk</li>
+ *   <li>{@code pack:<packId>/path.png} — loaded from a server-pushed pack jar
+ *       via the serverpacks mod's {@code PackAssetResolver}. If the pack
+ *       hasn't downloaded yet the widget retries silently each frame; once the
+ *       pack lands the texture loads and is cached normally.</li>
  *   <li>{@code <name>} — short form, equivalent to
  *       {@code classpath:/declarativeui/images/<name>}</li>
  * </ul>
@@ -53,10 +57,18 @@ public class ModImage extends ModComponent {
     }
 
     @Override
+    protected boolean consumesMouseInput() {
+        return false;
+    }
+
+    @Override
     protected void onRender(Queue queue, float alpha) {
         ImageTexture t = ensureTexture();
         if (t == null) return;
-        Renderer.texturedQuadAlphaBlend(queue, t, r, g, b, a * alpha,
+        // Ignore parent alpha — same flicker fix as ModLabel/ModEdge. Vanilla
+        // WurmLabel/WButton both hardcode 1.0; multiplying parent alpha makes
+        // backgrounds blink during window fades.
+        Renderer.texturedQuadAlphaBlend(queue, t, r, g, b, a,
                 getScreenX(), getScreenY(),
                 getComponentWidth(), getComponentHeight(),
                 0f, 0f, 1f, 1f);
@@ -65,9 +77,29 @@ public class ModImage extends ModComponent {
     private ImageTexture ensureTexture() {
         if (texture != null) return texture;
         if (loadAttempted) return null;
+        // Defer pack: URIs until the pack is on disk — don't burn the
+        // load-attempt budget while a download is still in flight.
+        if (uri != null && uri.startsWith("pack:") && !isPackReady(uri)) {
+            return null;
+        }
         loadAttempted = true;
         texture = loadTexture(uri, resourceAnchor);
         return texture;
+    }
+
+    private static boolean isPackReady(String packUri) {
+        String spec = packUri.substring("pack:".length());
+        int slash = spec.indexOf('/');
+        if (slash <= 0) return true; // malformed; let load attempt log the error
+        String packId = spec.substring(0, slash);
+        try {
+            Class<?> resolver = Class.forName("com.garward.mods.serverpacks.api.PackAssetResolver");
+            return (boolean) resolver.getMethod("isPackReady", String.class).invoke(null, packId);
+        } catch (ClassNotFoundException e) {
+            return true; // serverpacks not installed; let openStream produce a clean error
+        } catch (Exception e) {
+            return true;
+        }
     }
 
     private static synchronized ImageTexture loadTexture(String uri, Class<?> anchor) {
@@ -117,9 +149,39 @@ public class ModImage extends ModComponent {
             String path = uri.substring("file:".length());
             return new FileInputStream(new File(path));
         }
-        // Short form → declarativeui's bundled images dir.
+        if (uri.startsWith("pack:")) {
+            String spec = uri.substring("pack:".length());
+            int slash = spec.indexOf('/');
+            if (slash <= 0) {
+                logger.warning("[ModImage] malformed pack URI (need pack:<id>/<path>): " + uri);
+                return null;
+            }
+            String packId = spec.substring(0, slash);
+            String relPath = spec.substring(slash + 1);
+            try {
+                Class<?> resolver = Class.forName("com.garward.mods.serverpacks.api.PackAssetResolver");
+                return (InputStream) resolver
+                        .getMethod("openStream", String.class, String.class)
+                        .invoke(null, packId, relPath);
+            } catch (ClassNotFoundException e) {
+                logger.warning("[ModImage] pack: scheme requires the serverpacks mod (not loaded): " + uri);
+                return null;
+            } catch (java.lang.reflect.InvocationTargetException e) {
+                Throwable cause = e.getCause() != null ? e.getCause() : e;
+                throw new Exception("PackAssetResolver failed for " + uri, cause);
+            }
+        }
+        // Short form → declarativeui's bundled images dir. Resolve through the
+        // anchor's classloader (typically a mod's class) — ModImage itself
+        // lives in the framework jar whose classloader can't see resources
+        // packed into a separately-loaded mod jar. Fall back to ModImage's own
+        // loader so framework-bundled images still work when no anchor is
+        // supplied.
         String shortPath = "declarativeui/images/" + uri;
-        InputStream is = ModImage.class.getClassLoader().getResourceAsStream(shortPath);
+        ClassLoader anchorCl = (anchor != null ? anchor : ModImage.class).getClassLoader();
+        InputStream is = anchorCl.getResourceAsStream(shortPath);
+        if (is != null) return is;
+        is = ModImage.class.getClassLoader().getResourceAsStream(shortPath);
         if (is != null) return is;
         return ModImage.class.getResourceAsStream("/" + shortPath);
     }

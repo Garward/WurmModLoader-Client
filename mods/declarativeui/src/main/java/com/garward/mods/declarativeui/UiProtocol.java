@@ -63,6 +63,8 @@ public final class UiProtocol {
     public static final String W_CANVAS     = "Canvas";
     public static final String W_EDGE       = "Edge";
     public static final String W_IMAGE      = "Image";
+    public static final String W_BLIP       = "Blip";
+    public static final String W_VIEWPORT   = "Viewport";
 
     // Hard caps — reject obviously-malformed trees without crashing the HUD.
     // MAX_WIDGETS lifted from 256 to 4096 to fit large skill-tree layouts

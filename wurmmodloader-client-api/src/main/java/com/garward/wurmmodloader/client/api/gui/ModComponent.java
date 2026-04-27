@@ -1,5 +1,6 @@
 package com.garward.wurmmodloader.client.api.gui;
 
+import com.wurmonline.client.renderer.PickData;
 import com.wurmonline.client.renderer.backend.Queue;
 import com.wurmonline.client.renderer.gui.FlexComponent;
 
@@ -17,8 +18,25 @@ import com.wurmonline.client.renderer.gui.FlexComponent;
  */
 public abstract class ModComponent extends FlexComponent {
 
+    private String hoverText;
+
     protected ModComponent(String name) {
         super(name);
+    }
+
+    /**
+     * Set the tooltip shown when the mouse hovers over this widget.
+     * Pass {@code null} to clear. Multi-line tooltips: separate with {@code \n}.
+     * Wurm's HUD picks up {@link PickData#addText} during the per-frame
+     * mouse-pick pass and renders the popup itself.
+     */
+    public ModComponent setHoverText(String text) {
+        this.hoverText = text;
+        return this;
+    }
+
+    public String getHoverText() {
+        return hoverText;
     }
 
     protected ModComponent(String name, int initialWidth, int initialHeight) {
@@ -47,6 +65,21 @@ public abstract class ModComponent extends FlexComponent {
     protected void onMouseWheel(int xMouse, int yMouse, int delta) {
     }
 
+    /**
+     * Whether this widget swallows mouse clicks/drags or lets them bubble to
+     * the parent. Default: {@code true} (consume — backwards-compatible with
+     * leaf widgets like {@code LiveMapView} that want exclusive input).
+     *
+     * <p>Decorative widgets that fill space without needing input — image,
+     * edge, blip, label — override this to {@code false} so a containing
+     * {@link ModViewport} (or any other parent) sees the click. Tooltips on
+     * those widgets are unaffected; they ride the per-frame {@code pick} pass,
+     * not click dispatch.
+     */
+    protected boolean consumesMouseInput() {
+        return true;
+    }
+
     public int getScreenX() {
         return x;
     }
@@ -69,22 +102,49 @@ public abstract class ModComponent extends FlexComponent {
     }
 
     @Override
-    public final void leftPressed(int xMouse, int yMouse, int clickCount) {
-        onLeftPressed(xMouse, yMouse, clickCount);
+    public void leftPressed(int xMouse, int yMouse, int clickCount) {
+        if (consumesMouseInput()) {
+            onLeftPressed(xMouse, yMouse, clickCount);
+        } else if (parent != null) {
+            parent.leftPressed(xMouse, yMouse, clickCount);
+        }
     }
 
     @Override
-    public final void leftReleased(int xMouse, int yMouse) {
-        onLeftReleased(xMouse, yMouse);
+    public void leftReleased(int xMouse, int yMouse) {
+        if (consumesMouseInput()) {
+            onLeftReleased(xMouse, yMouse);
+        } else if (parent != null) {
+            parent.leftReleased(xMouse, yMouse);
+        }
     }
 
     @Override
-    public final void mouseDragged(int xMouse, int yMouse) {
-        onMouseDragged(xMouse, yMouse);
+    public void mouseDragged(int xMouse, int yMouse) {
+        if (consumesMouseInput()) {
+            onMouseDragged(xMouse, yMouse);
+        } else if (parent != null) {
+            parent.mouseDragged(xMouse, yMouse);
+        }
     }
 
     @Override
-    public final void mouseWheeled(int xMouse, int yMouse, int delta) {
-        onMouseWheel(xMouse, yMouse, delta);
+    public void mouseWheeled(int xMouse, int yMouse, int delta) {
+        if (consumesMouseInput()) {
+            onMouseWheel(xMouse, yMouse, delta);
+        } else if (parent != null) {
+            parent.mouseWheeled(xMouse, yMouse, delta);
+        }
+    }
+
+    @Override
+    public void pick(PickData pickData, int xMouse, int yMouse) {
+        // Vanilla WButton pattern: on the per-frame pick pass, hand any hover
+        // string to the HUD so it can draw the tooltip popup itself.
+        if (hoverText != null && !hoverText.isEmpty()) {
+            for (String line : hoverText.split("\n")) {
+                pickData.addText(line);
+            }
+        }
     }
 }

@@ -2,6 +2,7 @@ package com.garward.mods.declarativeui;
 
 import com.garward.wurmmodloader.client.api.gui.ArrayDirection;
 import com.garward.wurmmodloader.client.api.gui.Insets;
+import com.garward.wurmmodloader.client.api.gui.ModBlip;
 import com.garward.wurmmodloader.client.api.gui.ModButton;
 import com.garward.wurmmodloader.client.api.gui.ModCanvas;
 import com.garward.wurmmodloader.client.api.gui.ModComponent;
@@ -9,7 +10,9 @@ import com.garward.wurmmodloader.client.api.gui.ModEdge;
 import com.garward.wurmmodloader.client.api.gui.ModImage;
 import com.garward.wurmmodloader.client.api.gui.ModLabel;
 import com.garward.wurmmodloader.client.api.gui.ModStackPanel;
+import com.garward.wurmmodloader.client.api.gui.ModViewport;
 import com.wurmonline.client.renderer.gui.FlexComponent;
+import com.wurmonline.client.renderer.gui.WButton;
 
 import java.util.function.Consumer;
 import java.util.logging.Logger;
@@ -48,6 +51,31 @@ final class WindowBuilder {
     private static FlexComponent buildNode(WidgetNode node,
                                            MountedWindow mw,
                                            Consumer<String> actionSender) {
+        FlexComponent c = buildNodeInner(node, mw, actionSender);
+        if (c != null && node != null) applyTooltip(node, c);
+        return c;
+    }
+
+    /**
+     * Apply the universal {@code tooltip} prop. Works on any ModComponent
+     * (uses our own setHoverText/pick override) and on any vanilla WButton
+     * subclass (uses the existing setHoverString slot). Buttons that already
+     * have the legacy {@code hover} prop stay as-is unless {@code tooltip}
+     * is also present, in which case tooltip wins.
+     */
+    private static void applyTooltip(WidgetNode node, FlexComponent c) {
+        String tip = node.props.get("tooltip");
+        if (tip == null || tip.isEmpty()) return;
+        if (c instanceof ModComponent) {
+            ((ModComponent) c).setHoverText(tip);
+        } else if (c instanceof WButton) {
+            ((WButton) c).setHoverString(tip);
+        }
+    }
+
+    private static FlexComponent buildNodeInner(WidgetNode node,
+                                                MountedWindow mw,
+                                                Consumer<String> actionSender) {
         if (node == null) return null;
         switch (node.type) {
             case UiProtocol.W_STACK: {
@@ -89,32 +117,49 @@ final class WindowBuilder {
                 for (WidgetNode child : node.children) {
                     FlexComponent c = buildNode(child, mw, actionSender);
                     if (c == null) continue;
-                    int cx = child.propInt("x", 0);
-                    int cy = child.propInt("y", 0);
-                    int cwc = child.propInt("width", -1);
-                    int chc = child.propInt("height", -1);
-                    if (cwc < 0 || chc < 0) {
-                        // Edge widgets size themselves to their bounding box;
-                        // for label/button/etc. without explicit size, use a
-                        // sensible default so the layout doesn't render at 0×0.
-                        if (c instanceof ModEdge) {
-                            int x1 = child.propInt("x1", 0);
-                            int y1 = child.propInt("y1", 0);
-                            int x2 = child.propInt("x2", 0);
-                            int y2 = child.propInt("y2", 0);
-                            int t  = child.propInt("thickness", 2);
-                            cx = ModEdge.boxX(x1, x2, t);
-                            cy = ModEdge.boxY(y1, y2, t);
-                            if (cwc < 0) cwc = ModEdge.boxWidth(x1, x2, t);
-                            if (chc < 0) chc = ModEdge.boxHeight(y1, y2, t);
-                        } else {
-                            if (cwc < 0) cwc = 100;
-                            if (chc < 0) chc = 20;
-                        }
-                    }
-                    canvas.placeChild(c, cx, cy, cwc, chc);
+                    int[] xywh = resolvePlacement(child, c);
+                    canvas.placeChild(c, xywh[0], xywh[1], xywh[2], xywh[3]);
                 }
                 return canvas;
+            }
+            case UiProtocol.W_VIEWPORT: {
+                int cw = node.propInt("width", 256);
+                int ch = node.propInt("height", 256);
+                ModViewport viewport = new ModViewport("viewport", cw, ch);
+
+                // Zoom tuning: bounds + per-notch step + anchor mode. Defaults
+                // match ModViewport's defaults (0.25..4.0, 1.1×, centre-anchor).
+                float zMin  = (float) node.propDouble("zoomMin",  0.25);
+                float zMax  = (float) node.propDouble("zoomMax",  4.0);
+                float zStep = (float) node.propDouble("zoomStep", 1.1);
+                viewport.setZoomBounds(zMin, zMax, zStep);
+                String anchor = node.prop("zoomAnchor", "center");
+                viewport.setZoomAnchor("cursor".equalsIgnoreCase(anchor)
+                        ? ModViewport.ZoomAnchor.CURSOR
+                        : ModViewport.ZoomAnchor.CENTER);
+
+                // Initial view: starting scale + pan offsets so a window can
+                // open already centred on its content.
+                float initScale = (float) node.propDouble("initScale", 1.0);
+                int initPanX = node.propInt("initPanX", 0);
+                int initPanY = node.propInt("initPanY", 0);
+                viewport.setInitialView(initScale, initPanX, initPanY);
+
+                String bg = node.prop("bg", "");
+                if (!bg.isEmpty()) {
+                    float[] bgTint = parseColor(node.prop("bgTint", "1,1,1,1"));
+                    // Background sized 1x1 — ModViewport.performLayout stretches
+                    // it to viewport bounds via setLocation each layout pass.
+                    viewport.setBackground(new ModImage(bg, WindowBuilder.class, 1, 1,
+                            bgTint[0], bgTint[1], bgTint[2], bgTint[3]));
+                }
+                for (WidgetNode child : node.children) {
+                    FlexComponent c = buildNode(child, mw, actionSender);
+                    if (c == null) continue;
+                    int[] xywh = resolvePlacement(child, c);
+                    viewport.placeChild(c, xywh[0], xywh[1], xywh[2], xywh[3]);
+                }
+                return viewport;
             }
             case UiProtocol.W_IMAGE: {
                 int iw = node.propInt("width", 256);
@@ -132,10 +177,58 @@ final class WindowBuilder {
                 float[] rgba = parseColor(node.prop("color", "1,1,1,1"));
                 return new ModEdge(x1, y1, x2, y2, thickness, rgba[0], rgba[1], rgba[2], rgba[3]);
             }
+            case UiProtocol.W_BLIP: {
+                int diameter = node.propInt("diameter", 12);
+                float[] fill = parseColor(node.prop("fill", "1,1,1,1"));
+                int outlineThickness = node.propInt("outlineThickness", 0);
+                if (outlineThickness > 0) {
+                    float[] outline = parseColor(node.prop("outline", "0,0,0,1"));
+                    return new ModBlip(diameter,
+                            fill[0], fill[1], fill[2], fill[3],
+                            outlineThickness,
+                            outline[0], outline[1], outline[2], outline[3]);
+                }
+                return new ModBlip(diameter, fill[0], fill[1], fill[2], fill[3]);
+            }
             default:
                 logger.warning("[DeclarativeUI] unknown widget type: " + node.type);
                 return null;
         }
+    }
+
+    /**
+     * Resolve a child's (x, y, width, height) for an absolute-positioning
+     * container (Canvas / Viewport). Edge widgets size themselves to their
+     * bounding box; blips center on (x, y) and size to their diameter; other
+     * widgets fall back to a sensible default so layout doesn't render at 0×0.
+     */
+    private static int[] resolvePlacement(WidgetNode child, FlexComponent c) {
+        int cx = child.propInt("x", 0);
+        int cy = child.propInt("y", 0);
+        int cwc = child.propInt("width", -1);
+        int chc = child.propInt("height", -1);
+        if (cwc >= 0 && chc >= 0) return new int[] { cx, cy, cwc, chc };
+        if (c instanceof ModEdge) {
+            int x1 = child.propInt("x1", 0);
+            int y1 = child.propInt("y1", 0);
+            int x2 = child.propInt("x2", 0);
+            int y2 = child.propInt("y2", 0);
+            int t  = child.propInt("thickness", 2);
+            cx = ModEdge.boxX(x1, x2, t);
+            cy = ModEdge.boxY(y1, y2, t);
+            if (cwc < 0) cwc = ModEdge.boxWidth(x1, x2, t);
+            if (chc < 0) chc = ModEdge.boxHeight(y1, y2, t);
+        } else if (c instanceof ModBlip) {
+            int d = child.propInt("diameter", 12);
+            cx -= d / 2;
+            cy -= d / 2;
+            if (cwc < 0) cwc = d;
+            if (chc < 0) chc = d;
+        } else {
+            if (cwc < 0) cwc = 100;
+            if (chc < 0) chc = 20;
+        }
+        return new int[] { cx, cy, cwc, chc };
     }
 
     private static final class Spacer extends ModComponent {

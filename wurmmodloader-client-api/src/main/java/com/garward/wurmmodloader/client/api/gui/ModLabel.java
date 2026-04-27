@@ -73,6 +73,11 @@ public class ModLabel extends ModComponent {
     }
 
     @Override
+    protected boolean consumesMouseInput() {
+        return false;
+    }
+
+    @Override
     protected void onRender(Queue queue, float alpha) {
         if (text.isEmpty()) return;
         // SimpleTextFont.moveTo() treats y as the baseline; pass bottom edge.

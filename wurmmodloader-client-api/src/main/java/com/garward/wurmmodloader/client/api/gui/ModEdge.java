@@ -75,12 +75,20 @@ public class ModEdge extends ModComponent {
     }
 
     @Override
+    protected boolean consumesMouseInput() {
+        return false;
+    }
+
+    @Override
     protected void onRender(Queue queue, float alpha) {
         ImageTexture tex = ensureTexture();
         if (tex == null) return;
         int w = getComponentWidth();
         int h = getComponentHeight();
-        Renderer.texturedQuadAlphaBlend(queue, tex, r, g, b, a * alpha,
+        // Ignore parent alpha — same flicker fix as ModLabel. Some parents
+        // (windows during fade, panels during hover) animate alpha every
+        // frame; multiplying made edges blink in and out.
+        Renderer.texturedQuadAlphaBlend(queue, tex, r, g, b, a,
                 getScreenX(), getScreenY(), w, h, 0f, 0f, 1f, 1f);
     }
 

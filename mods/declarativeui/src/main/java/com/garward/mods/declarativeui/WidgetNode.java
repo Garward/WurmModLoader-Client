@@ -30,4 +30,10 @@ final class WidgetNode {
         if (v == null) return fallback;
         try { return Integer.parseInt(v); } catch (NumberFormatException e) { return fallback; }
     }
+
+    double propDouble(String key, double fallback) {
+        String v = props.get(key);
+        if (v == null) return fallback;
+        try { return Double.parseDouble(v); } catch (NumberFormatException e) { return fallback; }
+    }
 }
