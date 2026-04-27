@@ -19,7 +19,7 @@ val wurmClientDir: String by extra(
 
 allprojects {
     group = "com.garward.wurmmodloader.client"
-    version = "0.3.0"
+    version = "0.4.0"
 
     repositories {
         mavenCentral()
