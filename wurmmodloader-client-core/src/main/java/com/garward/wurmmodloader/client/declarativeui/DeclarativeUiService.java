@@ -1,4 +1,4 @@
-package com.garward.mods.declarativeui;
+package com.garward.wurmmodloader.client.declarativeui;
 
 import com.garward.wurmmodloader.client.api.events.base.SubscribeEvent;
 import com.garward.wurmmodloader.client.api.events.lifecycle.ClientInitEvent;
@@ -20,15 +20,15 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Client-side entry point for the {@code com.garward.ui} declarative UI channel.
- *
- * <p>Receives server-authored window trees, instantiates them on the main thread,
- * and sends button-click actions back up. See {@link UiProtocol} for the wire
- * format.
+ * Built-in client-side service for the {@code com.garward.ui} declarative UI
+ * channel. Receives server-authored window trees, instantiates them on the
+ * main thread, and sends button-click actions back up. Auto-registered by
+ * {@code ProxyClientHook} during modloader bootstrap — no separate mod jar
+ * required. See {@link UiProtocol} for the wire format.
  */
-public class DeclarativeUiClientMod {
+public class DeclarativeUiService {
 
-    private static final Logger logger = Logger.getLogger(DeclarativeUiClientMod.class.getName());
+    private static final Logger logger = Logger.getLogger(DeclarativeUiService.class.getName());
 
     private static final ConcurrentLinkedQueue<Runnable> mainThreadTasks = new ConcurrentLinkedQueue<>();
     private static final Map<String, MountedWindow> windows = new HashMap<>();
@@ -136,8 +136,8 @@ public class DeclarativeUiClientMod {
         runOnMainThread(() -> {
             MountedWindow mw = windows.get(windowId);
             if (mw == null || mw.window == null) return;
-            // toggleComponent flips visibility; server is expected to send
-            // SHOW/HIDE pairs that alternate, not absolute states.
+            // Server is expected to send SHOW/HIDE pairs that alternate, not
+            // absolute states — toggleComponent flips visibility.
             ModHud.get().toggle(mw.window);
         });
     }
@@ -161,9 +161,6 @@ public class DeclarativeUiClientMod {
         for (int i = 0; i < childCount; i++) {
             if (++widgetCount[0] > UiProtocol.MAX_WIDGETS_PER_WINDOW) {
                 logger.warning("[DeclarativeUI] widget cap " + UiProtocol.MAX_WIDGETS_PER_WINDOW + " hit, truncating");
-                // Must still consume remaining children to keep the stream aligned
-                // for the outer caller — but since we're in the middle of a frame,
-                // the cleanest option is to abort by propagating null up.
                 return null;
             }
             WidgetNode child = readTree(reader, depth + 1, widgetCount);

@@ -1,4 +1,4 @@
-package com.garward.mods.declarativeui;
+package com.garward.wurmmodloader.client.declarativeui;
 
 import com.garward.wurmmodloader.client.api.gui.ArrayDirection;
 import com.garward.wurmmodloader.client.api.gui.Insets;
@@ -19,9 +19,8 @@ import java.util.logging.Logger;
 
 /**
  * Walks a parsed {@link WidgetNode} tree and instantiates real HUD widgets.
- *
- * <p>Unknown widget types are skipped with a warning — a malformed server
- * payload never brings the HUD down.
+ * Unknown widget types are skipped with a warning — a malformed server payload
+ * never brings the HUD down.
  */
 final class WindowBuilder {
 
@@ -29,10 +28,6 @@ final class WindowBuilder {
 
     private WindowBuilder() {}
 
-    /**
-     * @param actionSender invoked with the {@code action} prop when a Button
-     *                     child is clicked — mod wires this to send OP_ACTION.
-     */
     static MountedWindow build(String windowId,
                                String title,
                                int width,
@@ -56,13 +51,9 @@ final class WindowBuilder {
         return c;
     }
 
-    /**
-     * Apply the universal {@code tooltip} prop. Works on any ModComponent
-     * (uses our own setHoverText/pick override) and on any vanilla WButton
-     * subclass (uses the existing setHoverString slot). Buttons that already
-     * have the legacy {@code hover} prop stay as-is unless {@code tooltip}
-     * is also present, in which case tooltip wins.
-     */
+    // Tooltip prop wins over the legacy `hover` prop on Buttons. ModComponent
+    // routes through our setHoverText override; vanilla WButton subclasses use
+    // the engine's own setHoverString slot.
     private static void applyTooltip(WidgetNode node, FlexComponent c) {
         String tip = node.props.get("tooltip");
         if (tip == null || tip.isEmpty()) return;
@@ -127,8 +118,6 @@ final class WindowBuilder {
                 int ch = node.propInt("height", 256);
                 ModViewport viewport = new ModViewport("viewport", cw, ch);
 
-                // Zoom tuning: bounds + per-notch step + anchor mode. Defaults
-                // match ModViewport's defaults (0.25..4.0, 1.1×, centre-anchor).
                 float zMin  = (float) node.propDouble("zoomMin",  0.25);
                 float zMax  = (float) node.propDouble("zoomMax",  4.0);
                 float zStep = (float) node.propDouble("zoomStep", 1.1);
@@ -138,8 +127,6 @@ final class WindowBuilder {
                         ? ModViewport.ZoomAnchor.CURSOR
                         : ModViewport.ZoomAnchor.CENTER);
 
-                // Initial view: starting scale + pan offsets so a window can
-                // open already centred on its content.
                 float initScale = (float) node.propDouble("initScale", 1.0);
                 int initPanX = node.propInt("initPanX", 0);
                 int initPanY = node.propInt("initPanY", 0);
@@ -148,8 +135,7 @@ final class WindowBuilder {
                 String bg = node.prop("bg", "");
                 if (!bg.isEmpty()) {
                     float[] bgTint = parseColor(node.prop("bgTint", "1,1,1,1"));
-                    // Background sized 1x1 — ModViewport.performLayout stretches
-                    // it to viewport bounds via setLocation each layout pass.
+                    // 1×1 — ModViewport.performLayout stretches to viewport bounds each pass.
                     viewport.setBackground(new ModImage(bg, WindowBuilder.class, 1, 1,
                             bgTint[0], bgTint[1], bgTint[2], bgTint[3]));
                 }

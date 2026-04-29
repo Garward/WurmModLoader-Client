@@ -5,6 +5,8 @@ import com.wurmonline.client.game.inventory.InventoryMetaItem;
 import com.wurmonline.client.renderer.PickableUnit;
 import com.wurmonline.client.renderer.cell.GroundItemCellRenderable;
 import com.wurmonline.client.renderer.gui.HeadsUpDisplay;
+import com.wurmonline.client.renderer.gui.InventoryListComponent;
+import com.wurmonline.client.renderer.gui.InventoryWindow;
 import com.wurmonline.client.renderer.gui.PaperDollInventory;
 import com.wurmonline.client.renderer.gui.PaperDollSlot;
 import com.wurmonline.client.renderer.gui.SelectBar;
@@ -36,6 +38,7 @@ public final class ClientItemReflect {
     private static Field fldActiveToolItem;        // HeadsUpDisplay.activeToolItem
     private static Field fldSelectedUnit;          // SelectBar.selectedUnit
     private static Field fldGroundItems;           // ServerConnectionListenerClass.groundItems
+    private static Field fldInventoryWindow;       // HeadsUpDisplay.inventoryWindow
 
     private ClientItemReflect() {}
 
@@ -47,6 +50,24 @@ public final class ClientItemReflect {
                 "getFrameFromSlotnumber", byte.class);
         mGetFrameFromSlotnumber.setAccessible(true);
         fldGroundItems = accessible(ServerConnectionListenerClass.class.getDeclaredField("groundItems"));
+        fldInventoryWindow = accessible(HeadsUpDisplay.class.getDeclaredField("inventoryWindow"));
+    }
+
+    /**
+     * Returns the IDs of items currently blue-highlighted (selected) in the
+     * player's main inventory tree, in display order. Empty when nothing is
+     * selected. The returned array is the same {@code long[]} the vanilla
+     * inventory uses for command-target dispatch, so it accounts for stack
+     * splits where a selected stack expands into multiple ids.
+     */
+    public static long[] getSelectedInventoryItemIds(HeadsUpDisplay hud) throws ReflectiveOperationException {
+        if (hud == null) return new long[0];
+        InventoryWindow iw = (InventoryWindow) fldInventoryWindow.get(hud);
+        if (iw == null) return new long[0];
+        InventoryListComponent comp = iw.getInventoryListComponent();
+        if (comp == null) return new long[0];
+        long[] ids = comp.getSelectedCommandTargets();
+        return ids == null ? new long[0] : ids;
     }
 
     public static InventoryMetaItem getBodyItem(PaperDollInventory pd) throws ReflectiveOperationException {

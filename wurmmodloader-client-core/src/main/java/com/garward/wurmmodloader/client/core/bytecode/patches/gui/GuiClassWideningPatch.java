@@ -70,7 +70,15 @@ public class GuiClassWideningPatch implements BytecodePatch {
     private static void widenIfPackagePrivate(CtClass ctClass) {
         int mods = ctClass.getModifiers();
         if (isPackagePrivate(mods)) {
-            ctClass.setModifiers(Modifier.setPublic(mods));
+            mods = Modifier.setPublic(mods);
+        }
+        // Strip final on the class so mods can subclass widened widgets
+        // (WurmInputField is declared final in vanilla).
+        if (Modifier.isFinal(mods)) {
+            mods &= ~Modifier.FINAL;
+        }
+        if (mods != ctClass.getModifiers()) {
+            ctClass.setModifiers(mods);
         }
     }
 

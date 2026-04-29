@@ -4,7 +4,7 @@
 
 The WurmModLoader client system provides a modern, event-driven modding framework for Wurm Unlimited that integrates with the server modloader architecture.
 
-**Key Improvement over Ago's Loader**: Instead of requiring manual JVM arguments in Steam, we patch the client once and it auto-loads mods every time you launch through Steam normally.
+we patch the client once and it auto loads mods every time you launch through Steam normally.
 
 ## 📋 Installation (Automated)
 
@@ -28,7 +28,7 @@ install-client-modloader.bat
 > (`C:\Program Files (x86)\Steam\steamapps\common\Wurm Unlimited\WurmLauncher\`).
 
 The installer will:
-1. Auto-detect your Steam installation
+1. Auto detect your Steam installation
 2. Build the modloader
 3. Deploy the modloader JAR
 4. Patch `client.jar` to bootstrap the modloader
@@ -56,7 +56,7 @@ cp build/distributions/WurmModloader-Client-*/wurmmodloader-client-*.jar \
 
 ```bash
 cd ~/.local/share/Steam/steamapps/common/Wurm\ Unlimited/WurmLauncher/
-java -jar wurmmodloader-client-0.1.0.jar
+java -jar wurmmodloader-client-0.4.0.jar
 ```
 
 This will:

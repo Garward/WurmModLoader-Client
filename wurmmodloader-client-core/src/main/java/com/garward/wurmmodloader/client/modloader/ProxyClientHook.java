@@ -64,6 +64,11 @@ public class ProxyClientHook extends ClientHook {
             logger.info("Initializing ProxyClientHook singleton");
             instance = new ProxyClientHook();
 
+            // Built-in framework services. Registered before mod discovery so
+            // they're available whether or not any mods are installed, and
+            // whether the install is empty, MODERN, LEGACY, or MIXED.
+            registerBuiltinServices(instance);
+
             // Detect mod type and load appropriately
             logger.info("");
             ModType modType = detectModType();
@@ -101,6 +106,22 @@ public class ProxyClientHook extends ClientHook {
             logger.info("");
         }
         return instance;
+    }
+
+    /**
+     * Registers built-in framework services on the event bus. These are
+     * subsystems the modloader ships with — server-driven declarative UI is
+     * the first one — so server mods can target them without requiring a
+     * matching client-side mod jar.
+     */
+    private static void registerBuiltinServices(ProxyClientHook hook) {
+        try {
+            hook.registerListener(new com.garward.wurmmodloader.client.declarativeui.DeclarativeUiService());
+            logger.info("Registered built-in service: DeclarativeUiService (com.garward.ui)");
+        } catch (Throwable t) {
+            logger.log(java.util.logging.Level.SEVERE,
+                    "Failed to register built-in DeclarativeUiService", t);
+        }
     }
 
     /**
@@ -472,6 +493,43 @@ public class ProxyClientHook extends ClientHook {
      */
     public static void fireCompassComponentPickEvent(Object component, Object pickData, int mouseX, int mouseY) {
         getInstance().fireCompassComponentPick(component, pickData, mouseX, mouseY);
+    }
+
+    // ========== HOVER TOOLTIPS ==========
+
+    /**
+     * Static entry point fired at the start of
+     * {@code TilePicker.getHoverName()}. Returns a subscriber-supplied
+     * override name, or {@code null} to fall through to vanilla.
+     */
+    public static String fireTilePickerHoverNameEvent(Object picker, Object world,
+                                                      int x, int y, int section,
+                                                      String slopeSuffix) {
+        try { return getInstance().fireTilePickerHoverName(picker, world, x, y, section, slopeSuffix); }
+        catch (Throwable t) { t.printStackTrace(); return null; }
+    }
+
+    /**
+     * Static entry point fired at the start of
+     * {@code CaveWallPicker.getHoverName()}. Returns a subscriber-supplied
+     * override name, or {@code null} to fall through to vanilla.
+     */
+    public static String fireCaveWallPickerHoverNameEvent(Object picker, Object world,
+                                                          int x, int y, int wallSide,
+                                                          String name, String slopeSuffix) {
+        try { return getInstance().fireCaveWallPickerHoverName(picker, world, x, y, wallSide, name, slopeSuffix); }
+        catch (Throwable t) { t.printStackTrace(); return null; }
+    }
+
+    /**
+     * Static entry point fired at the end of
+     * {@code CreatureCellRenderable.getHoverDescription(PickData)}. Subscribers
+     * append additional text via {@code event.getPickData().addText(...)}.
+     */
+    public static void fireCreatureHoverDescriptionEvent(Object renderable, Object pickData,
+                                                         String modelName) {
+        try { getInstance().fireCreatureHoverDescription(renderable, pickData, modelName); }
+        catch (Throwable t) { t.printStackTrace(); }
     }
 
     // ========== PICK RENDER (overlay seam) ==========

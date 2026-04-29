@@ -350,6 +350,44 @@ public class ClientHook {
     }
 
     /**
+     * Fire {@code TilePickerHoverNameEvent} before vanilla
+     * {@code TilePicker.getHoverName()} runs. Returns the subscriber-supplied
+     * override or {@code null} if nothing was set.
+     */
+    public String fireTilePickerHoverName(Object picker, Object world, int x, int y,
+                                          int section, String slopeSuffix) {
+        com.garward.wurmmodloader.client.api.events.gui.TilePickerHoverNameEvent event =
+            new com.garward.wurmmodloader.client.api.events.gui.TilePickerHoverNameEvent(
+                picker, world, x, y, section, slopeSuffix);
+        postEvent(event);
+        return event.getOverrideName();
+    }
+
+    /**
+     * Fire {@code CaveWallPickerHoverNameEvent} before vanilla
+     * {@code CaveWallPicker.getHoverName()} runs.
+     */
+    public String fireCaveWallPickerHoverName(Object picker, Object world, int x, int y,
+                                              int wallSide, String name, String slopeSuffix) {
+        com.garward.wurmmodloader.client.api.events.gui.CaveWallPickerHoverNameEvent event =
+            new com.garward.wurmmodloader.client.api.events.gui.CaveWallPickerHoverNameEvent(
+                picker, world, x, y, wallSide, name, slopeSuffix);
+        postEvent(event);
+        return event.getOverrideName();
+    }
+
+    /**
+     * Fire {@code CreatureHoverDescriptionEvent} after vanilla
+     * {@code CreatureCellRenderable.getHoverDescription(PickData)} runs.
+     */
+    public void fireCreatureHoverDescription(Object renderable, Object pickData, String modelName) {
+        com.garward.wurmmodloader.client.api.events.gui.CreatureHoverDescriptionEvent event =
+            new com.garward.wurmmodloader.client.api.events.gui.CreatureHoverDescriptionEvent(
+                renderable, pickData, modelName);
+        postEvent(event);
+    }
+
+    /**
      * Fire {@code PickRenderPreEvent} at the start of {@code PickRenderer.execute}.
      */
     public void firePickRenderPre(Object queue) {

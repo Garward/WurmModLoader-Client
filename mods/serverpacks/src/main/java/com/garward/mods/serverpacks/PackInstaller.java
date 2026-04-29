@@ -7,6 +7,7 @@ import com.wurmonline.client.renderer.terrain.TerrainTexture;
 import com.wurmonline.client.renderer.terrain.TilePropertiesXml;
 import com.wurmonline.client.resources.Resources;
 import com.wurmonline.client.resources.ResourceUrl;
+import com.wurmonline.client.resources.textures.IconLoader;
 
 import java.io.File;
 import java.lang.reflect.Constructor;
@@ -19,6 +20,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.jar.JarFile;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -47,6 +52,17 @@ final class PackInstaller {
 
     // absolute-path → JarPack instance; used by closePack() to undo add.
     private static final Map<String, Object> addedPacks = new ConcurrentHashMap<>();
+
+    // Debounce reloadResources() — a burst of packs arriving back-to-back
+    // would otherwise call IconLoader.clear() once per pack, blowing the GL
+    // texture cache N times and stalling the render thread.
+    private static final ScheduledExecutorService reloadScheduler =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "PackInstaller-reload");
+                t.setDaemon(true);
+                return t;
+            });
+    private static ScheduledFuture<?> pendingReload;
 
     private PackInstaller() {}
 
@@ -102,7 +118,7 @@ final class PackInstaller {
             addedPacks.put(file.getAbsoluteFile().toString(), jarPack);
             logger.info(String.format("[PackInstaller] Added server pack %s (%s)", packId, file.getName()));
 
-            reloadResources();
+            scheduleReloadResources();
         } catch (Throwable t) {
             logger.log(Level.SEVERE, "[PackInstaller] failed to enable pack " + packId, t);
         }
@@ -159,6 +175,22 @@ final class PackInstaller {
         } catch (Throwable t) {
             logger.log(Level.WARNING, "[PackInstaller] reloadAll failed", t);
         }
+    }
+
+    /**
+     * Coalesce reload calls inside a 1.5 s window. Multiple packs arriving
+     * back-to-back during login/handshake would otherwise call
+     * {@link IconLoader#clear()} per pack, forcing the render thread to
+     * re-upload every visible icon as a GL texture each time and stalling
+     * the client. The latest call wins; resources reload once after the
+     * burst settles.
+     */
+    private static synchronized void scheduleReloadResources() {
+        if (pendingReload != null) pendingReload.cancel(false);
+        pendingReload = reloadScheduler.schedule(() -> {
+            try { reloadResources(); }
+            catch (Throwable t) { logger.log(Level.WARNING, "[PackInstaller] debounced reload failed", t); }
+        }, 1500, TimeUnit.MILLISECONDS);
     }
 
     static void dumpPacks() {
@@ -237,6 +269,12 @@ final class PackInstaller {
         try { ItemColorsXml.reloadItemColors(getWorld()); } catch (Throwable t) { logger.log(Level.FINE, "item colors reload", t); }
         try { TilePropertiesXml.reloadTiles(); } catch (Throwable t) { logger.log(Level.FINE, "tiles reload", t); }
         try { TerrainTexture.reloadNormalMaps(); } catch (Throwable t) { logger.log(Level.FINE, "terrain reload", t); }
+        // Re-read icon sheets (img.iconsheet.*) so the next getIcon() call slices
+        // from the new pack's PNGs. Covers both framework graphics.jar replacements
+        // and Ago-style iconzz-pack.jar deliveries — both ship sheet PNGs + a
+        // mappings.txt entry for img.iconsheet.icons et al.
+        try { IconLoader.clear(); IconLoader.initIcons(); }
+        catch (Throwable t) { logger.log(Level.FINE, "icons reload", t); }
     }
 
     private static com.wurmonline.client.game.World getWorld() throws ReflectiveOperationException {

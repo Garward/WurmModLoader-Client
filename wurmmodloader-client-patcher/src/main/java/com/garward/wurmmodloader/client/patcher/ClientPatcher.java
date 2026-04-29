@@ -326,6 +326,21 @@ public class ClientPatcher {
             "com/wurmonline/client/renderer/gui/CompassComponent.class",
             new com.garward.wurmmodloader.client.core.bytecode.patches.CompassComponentPatch()
         );
+        // Hover tooltip hooks — TilePicker / CaveWallPicker hover-name override
+        // points and CreatureCellRenderable hover-description append point.
+        // Powers tooltip-enrichment mods (e.g. ported bdew tooltips).
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/renderer/TilePicker.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.TilePickerHoverNamePatch()
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/renderer/cave/CaveWallPicker.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.CaveWallPickerHoverNamePatch()
+        );
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/renderer/cell/CreatureCellRenderable.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.CreatureHoverDescriptionPatch()
+        );
         addPatch(accessWideningPatches,
             "com/wurmonline/client/renderer/gui/HeadsUpDisplay.class",
             new com.garward.wurmmodloader.client.core.bytecode.patches.WorldMapTogglePatch()
@@ -358,11 +373,16 @@ public class ClientPatcher {
             new com.garward.wurmmodloader.client.core.bytecode.patches.OggInputStreamPathLoggingPatch()
         );
         // Diagnostic: log every sample SoundEngine plays. Used to identify
-        // unexplained looping audio.
-        addPatch(accessWideningPatches,
-            "com/wurmonline/client/sound/SoundEngine.class",
-            new com.garward.wurmmodloader.client.core.bytecode.patches.SoundPlayLoggingPatch()
-        );
+        // unexplained looping audio. Disabled by default — fires on every
+        // sound (footsteps, weapons, ambient) and floods the client log
+        // hard enough to stall the render thread. Set
+        // {@code -Dwml.client.diag.soundplay=true} on the launcher to enable.
+        if (Boolean.getBoolean("wml.client.diag.soundplay")) {
+            addPatch(accessWideningPatches,
+                "com/wurmonline/client/sound/SoundEngine.class",
+                new com.garward.wurmmodloader.client.core.bytecode.patches.SoundPlayLoggingPatch()
+            );
+        }
         addPatch(accessWideningPatches,
             "com/wurmonline/client/resources/PackResourceUrl.class",
             new com.garward.wurmmodloader.client.core.bytecode.patches.serverpacks.PackResourceUrlRawFilePathPatch()

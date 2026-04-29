@@ -32,7 +32,7 @@ project(":mods:serverpacks").projectDir = file("mods/serverpacks")
 include("mods:livemap")
 project(":mods:livemap").projectDir = file("mods/livemap")
 
-include("mods:declarativeui")
-project(":mods:declarativeui").projectDir = file("mods/declarativeui")
-
-// wurmesp, compass, action moved to WurmModLoader-CommunityMods/client-mods/
+// declarativeui folded into wurmmodloader-client-core as a built-in framework
+// service (registered automatically by ProxyClientHook). No client mod jar is
+// shipped — server-side mods drive UI through the com.garward.ui ModComm
+// channel. wurmesp, compass, action moved to WurmModLoader-CommunityMods/client-mods/

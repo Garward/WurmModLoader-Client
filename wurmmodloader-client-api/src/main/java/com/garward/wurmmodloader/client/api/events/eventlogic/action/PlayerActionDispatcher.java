@@ -27,6 +27,7 @@ import java.util.stream.Stream;
  *   <li>{@code tile_n / s / e / w / ne / nw / se / sw} — neighbouring tile.</li>
  *   <li>{@code tool} — the currently active toolbelt item.</li>
  *   <li>{@code selected} — the active select-bar unit.</li>
+ *   <li>{@code inventory_selection} — every item blue-highlighted in the inventory.</li>
  *   <li>{@code area} — every tile in a 3x3 around the player.</li>
  *   <li>{@code toolbelt} — switch active tool slot to id (1-10).</li>
  *   <li>{@code @tbN} — fire on the item in toolbelt slot N (1-10).</li>
@@ -81,6 +82,15 @@ public final class PlayerActionDispatcher {
             case "selected": {
                 PickableUnit p = ClientItemReflect.getSelectedUnit(hud.getSelectBar());
                 if (p != null) hud.sendAction(act, p.getId());
+                break;
+            }
+            case "inventory_selection": {
+                long[] ids = ClientItemReflect.getSelectedInventoryItemIds(hud);
+                if (ids.length == 0) {
+                    hud.consoleOutput("dispatch: nothing selected in inventory");
+                } else {
+                    for (long id : ids) hud.sendAction(act, id);
+                }
                 break;
             }
             case "area":

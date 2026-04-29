@@ -1,4 +1,4 @@
-package com.garward.mods.declarativeui;
+package com.garward.wurmmodloader.client.declarativeui;
 
 /**
  * Wire protocol for the {@code com.garward.ui} declarative UI channel.
@@ -27,35 +27,19 @@ package com.garward.mods.declarativeui;
  *   short propCount, [UTF key, UTF value]*,
  *   short childCount, TREE[]
  * </pre>
- *
- * <p>Widget types (v0): {@code Label}, {@code Button}, {@code StackPanel},
- * {@code Spacer}. Unknown types are logged and skipped — they never crash the
- * HUD.
- *
- * <p>Common props:
- * <ul>
- *   <li>{@code Label}: {@code text}, {@code bind}, {@code color} ("r,g,b,a")</li>
- *   <li>{@code Button}: {@code label}, {@code action}, {@code hover}</li>
- *   <li>{@code StackPanel}: {@code direction} ("vertical"|"horizontal"),
- *       {@code gap} (int), {@code padding} (int)</li>
- *   <li>{@code Spacer}: {@code width}, {@code height} (ints)</li>
- * </ul>
  */
 public final class UiProtocol {
 
     public static final String CHANNEL = "com.garward.ui";
 
-    // Server → client
     public static final byte OP_MOUNT    = 0x01;
     public static final byte OP_UNMOUNT  = 0x02;
     public static final byte OP_BIND     = 0x03;
     public static final byte OP_SHOW     = 0x05;
     public static final byte OP_HIDE     = 0x06;
 
-    // Client → server
     public static final byte OP_ACTION   = 0x10;
 
-    // Widget types
     public static final String W_LABEL      = "Label";
     public static final String W_BUTTON     = "Button";
     public static final String W_STACK      = "StackPanel";
@@ -66,9 +50,7 @@ public final class UiProtocol {
     public static final String W_BLIP       = "Blip";
     public static final String W_VIEWPORT   = "Viewport";
 
-    // Hard caps — reject obviously-malformed trees without crashing the HUD.
-    // MAX_WIDGETS lifted from 256 to 4096 to fit large skill-tree layouts
-    // (PoE-tier ~1300 nodes + edges; 4096 leaves headroom).
+    // 4096 leaves headroom for PoE-tier ~1300-node skill trees.
     public static final int MAX_TREE_DEPTH = 16;
     public static final int MAX_WIDGETS_PER_WINDOW = 4096;
 

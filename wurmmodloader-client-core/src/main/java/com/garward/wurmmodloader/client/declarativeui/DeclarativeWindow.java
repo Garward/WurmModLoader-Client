@@ -1,12 +1,11 @@
-package com.garward.mods.declarativeui;
+package com.garward.wurmmodloader.client.declarativeui;
 
 import com.garward.wurmmodloader.client.api.gui.ModWindow;
 import com.wurmonline.client.renderer.gui.FlexComponent;
 
 /**
  * Concrete {@link ModWindow} subclass used for all declaratively-built windows.
- * Vanilla {@code ModWindow} is abstract, so we need a subclass just to allow
- * instantiation — it exists for no other reason.
+ * {@code ModWindow} is abstract; this exists solely to allow instantiation.
  */
 final class DeclarativeWindow extends ModWindow {
     DeclarativeWindow(String title, FlexComponent content, int width, int height) {

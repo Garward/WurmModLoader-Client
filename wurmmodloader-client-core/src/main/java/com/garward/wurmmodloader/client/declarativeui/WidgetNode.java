@@ -1,4 +1,4 @@
-package com.garward.mods.declarativeui;
+package com.garward.wurmmodloader.client.declarativeui;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -6,8 +6,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Parsed widget tree node. Opaque to the ModComm listener — the interpreter
- * walks this and instantiates real HUD components in {@link WindowBuilder}.
+ * Parsed widget tree node, internal to the client-side declarative UI service.
+ * The wire decoder fills these in; {@link WindowBuilder} walks them to build
+ * real HUD components. Distinct from
+ * {@code com.garward.wurmmodloader.modsupport.declarativeui.WidgetNode} on the
+ * server (the public builder API).
  */
 final class WidgetNode {
     final String type;

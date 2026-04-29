@@ -6,12 +6,15 @@ import com.garward.wurmmodloader.client.core.bytecode.patches.ClientTickPatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.FOVChangePatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.HeadsUpDisplayInitPatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.CellRenderableLifecyclePatch;
+import com.garward.wurmmodloader.client.core.bytecode.patches.CaveWallPickerHoverNamePatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.CompassComponentPatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.ConsoleInputPatch;
+import com.garward.wurmmodloader.client.core.bytecode.patches.CreatureHoverDescriptionPatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.DeedPlanPacketPatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.PickRenderPatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.IsDevOverridePatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.PlayerActionNamePatch;
+import com.garward.wurmmodloader.client.core.bytecode.patches.TilePickerHoverNamePatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.WurmPopupRebindPatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.SimpleServerConnectionModCommPatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.WorldMapTogglePatch;
@@ -58,6 +61,8 @@ public class CorePatches {
         new GuiClassWideningPatch("com.wurmonline.client.renderer.gui.WWindow"),
         new GuiClassWideningPatch("com.wurmonline.client.renderer.gui.WButton"),
         new GuiClassWideningPatch("com.wurmonline.client.renderer.gui.WTextureButton"),
+        new GuiClassWideningPatch("com.wurmonline.client.renderer.gui.WurmInputField"),
+        new GuiClassWideningPatch("com.wurmonline.client.renderer.gui.InputFieldListener"),
         new GuiClassWideningPatch("com.wurmonline.client.renderer.gui.WurmBorderPanel"),
         new GuiClassWideningPatch("com.wurmonline.client.renderer.gui.WurmArrayPanel"),
         new GuiClassWideningPatch("com.wurmonline.client.renderer.gui.ButtonListener"),
@@ -149,6 +154,14 @@ public class CorePatches {
 
         // Compass widget — tick/pick events for always-on / hover-text mods
         PatchRegistry.register(new CompassComponentPatch());
+
+        // Hover-name / hover-description hooks — fire events at the top of
+        // TilePicker.getHoverName / CaveWallPicker.getHoverName (override-or-fall-through)
+        // and at the end of CreatureCellRenderable.getHoverDescription (additive).
+        // Powers tooltip mods that enrich the right-click target label.
+        PatchRegistry.register(new TilePickerHoverNamePatch());
+        PatchRegistry.register(new CaveWallPickerHoverNamePatch());
+        PatchRegistry.register(new CreatureHoverDescriptionPatch());
 
         // ModComm — install client-side dispatch + banner-triggered handshake
         PatchRegistry.register(new SimpleServerConnectionModCommPatch());
