@@ -1,4 +1,4 @@
-package com.garward.mods.serverpacks;
+package com.garward.wurmmodloader.client.serverpacks;
 
 import com.garward.wurmmodloader.client.api.events.base.SubscribeEvent;
 import com.garward.wurmmodloader.client.api.events.client.ClientConsoleInputEvent;
@@ -13,6 +13,7 @@ import com.garward.wurmmodloader.client.modcomm.PacketReader;
 import com.garward.wurmmodloader.client.modcomm.PacketWriter;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.ByteBuffer;
@@ -20,7 +21,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.io.InputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -28,26 +28,34 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Client-side serverpacks mod — protocol-compatible with Ago-hosted servers.
+ * Built-in framework service that handles server-pushed pack downloads —
+ * protocol-compatible with Ago-hosted servers.
  *
- * <p>Registers the legacy {@code "ago.serverpacks"} ModComm channel using the
- * same wire format upstream tyoda/ago1024 servers send:
- * <pre>
- *   int n;
- *   for n:  UTF packId;  UTF uri;
- * </pre>
+ * <p>Registers two ModComm channels:
+ * <ul>
+ *   <li>{@code com.garward.serverpacks} — canonical, includes per-pack
+ *       SHA-256 + size for cache verification.</li>
+ *   <li>{@code ago.serverpacks} — legacy alias matching upstream tyoda/ago1024
+ *       wire format ({@code int n; for n: UTF packId; UTF uri;}).</li>
+ * </ul>
  *
- * <p>Pack installation (JarPack construction + splice into {@code Resources.packs}
- * + resolved/unresolved flush) is done via direct reflection against the vanilla
- * client, mirroring the approach in {@code org.gotti.wurmunlimited.modsupport.packs.ModPacks}
- * without taking a dependency on the legacy launcher's modsupport jar.
+ * <p>Pack installation (JarPack construction + splice into
+ * {@code Resources.packs} + resolved/unresolved flush) is done via direct
+ * reflection against the vanilla client, mirroring the approach in
+ * {@code org.gotti.wurmunlimited.modsupport.packs.ModPacks} without depending
+ * on the legacy launcher's modsupport jar.
+ *
+ * <p>Promoted from the {@code mods/serverpacks} mod into the framework so
+ * {@link PackAssetResolver} sits in the framework classloader — the previous
+ * arrangement broke cross-classloader {@code Class.forName} lookups from
+ * scheduler threads (icon registry rebuild, declarativeui {@code pack:}
+ * URI resolution).
  */
-public class ServerPacksClientMod {
+public final class ServerPacksClientService {
 
-    private static final Logger logger = Logger.getLogger(ServerPacksClientMod.class.getName());
+    private static final Logger logger = Logger.getLogger(ServerPacksClientService.class.getName());
     private static final byte CMD_REFRESH = 0x01;
 
-    /** Canonical channel. Paired with legacy alias for one release. */
     public static final String CHANNEL = "com.garward.serverpacks";
     public static final String LEGACY_CHANNEL = "ago.serverpacks";
 

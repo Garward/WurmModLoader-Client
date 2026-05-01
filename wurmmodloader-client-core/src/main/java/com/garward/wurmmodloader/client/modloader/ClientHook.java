@@ -48,6 +48,7 @@ public class ClientHook {
         logger.info("ClientHook initialized");
         this.eventBus = new EventBus();
         com.garward.wurmmodloader.client.serverinfo.ServerInfoClientChannel.initialize();
+        com.garward.wurmmodloader.client.serverpacks.IconRegistryClientChannel.initialize();
     }
 
     /**

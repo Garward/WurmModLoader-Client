@@ -26,13 +26,12 @@ include("examples:hellomod")
 project(":examples:hellomod").projectDir = file("examples/hellomod")
 
 // Client mods
-include("mods:serverpacks")
-project(":mods:serverpacks").projectDir = file("mods/serverpacks")
-
 include("mods:livemap")
 project(":mods:livemap").projectDir = file("mods/livemap")
 
-// declarativeui folded into wurmmodloader-client-core as a built-in framework
-// service (registered automatically by ProxyClientHook). No client mod jar is
-// shipped — server-side mods drive UI through the com.garward.ui ModComm
-// channel. wurmesp, compass, action moved to WurmModLoader-CommunityMods/client-mods/
+// declarativeui + serverpacks folded into wurmmodloader-client-core as built-in
+// framework services (registered automatically by ProxyClientHook). No client
+// mod jars are shipped for either — server-side mods drive UI through the
+// com.garward.ui ModComm channel, and pack delivery hooks the
+// com.garward.serverpacks / ago.serverpacks channels straight from the
+// framework. wurmesp, compass, action moved to WurmModLoader-CommunityMods/client-mods/

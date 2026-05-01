@@ -36,6 +36,7 @@ public class ModBlip extends ModComponent {
     private final float or, og, ob, oa;
 
     private ImageTexture texture;
+    private Runnable onClick;
 
     /** Solid filled blip, no outline. */
     public ModBlip(int diameter, float r, float g, float b, float a) {
@@ -57,9 +58,25 @@ public class ModBlip extends ModComponent {
         this.or = or; this.og = og; this.ob = ob; this.oa = oa;
     }
 
+    /**
+     * Attach a click handler. With a handler set, the blip swallows mouse
+     * clicks (so a containing viewport doesn't steal them for panning); with
+     * none, the blip stays input-transparent — letting drags pan the parent
+     * viewport and tooltips ride the per-frame pick pass.
+     */
+    public ModBlip onClick(Runnable handler) {
+        this.onClick = handler;
+        return this;
+    }
+
     @Override
     protected boolean consumesMouseInput() {
-        return false;
+        return onClick != null;
+    }
+
+    @Override
+    protected void onLeftReleased(int xMouse, int yMouse) {
+        if (onClick != null) onClick.run();
     }
 
     @Override

@@ -122,6 +122,13 @@ public class ProxyClientHook extends ClientHook {
             logger.log(java.util.logging.Level.SEVERE,
                     "Failed to register built-in DeclarativeUiService", t);
         }
+        try {
+            hook.registerListener(new com.garward.wurmmodloader.client.serverpacks.ServerPacksClientService());
+            logger.info("Registered built-in service: ServerPacksClientService (com.garward.serverpacks)");
+        } catch (Throwable t) {
+            logger.log(java.util.logging.Level.SEVERE,
+                    "Failed to register built-in ServerPacksClientService", t);
+        }
     }
 
     /**

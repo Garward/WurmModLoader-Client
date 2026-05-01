@@ -144,7 +144,7 @@ com/garward/wurmmodloader/client/patcher/...      (Patcher module)
 Check dependencies are included:
 
 ```bash
-jar tf wurmmodloader-client-patcher/build/libs/wurmmodloader-client-0.1.0.jar | grep -E "(javassist|gson|snakeyaml|logback)"
+jar tf wurmmodloader-client-patcher/build/libs/wurmmodloader-client-0.4.0.jar | grep -E "(javassist|gson|snakeyaml|logback)"
 ```
 
 ## Gradle Properties
@@ -152,7 +152,7 @@ jar tf wurmmodloader-client-patcher/build/libs/wurmmodloader-client-0.1.0.jar | 
 Key settings in `gradle.properties`:
 
 ```properties
-version=0.1.0                    # Project version
+version=0.4.0                    # Project version
 java.toolchain.version=17        # Build with Java 17
 wurmVersion=4596061             # Wurm Unlimited version
 javassistVersion=3.30.2-GA      # Bytecode manipulation

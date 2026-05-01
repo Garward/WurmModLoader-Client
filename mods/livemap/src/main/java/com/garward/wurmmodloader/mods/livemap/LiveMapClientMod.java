@@ -46,6 +46,12 @@ public class LiveMapClientMod {
 
     // Components
     private MapHttpClient httpClient;
+    /** URL the current {@link #httpClient} was built for. Tracked so a reconnect
+     *  to a server that rebound on a different ephemeral port (the framework
+     *  HTTP subsystem defaults to {@code serverPort=0}) can swap the client out
+     *  in place instead of being stuck polling a dead port until the user
+     *  restarts the entire client. */
+    private String httpClientUrl;
     private MapDataCache dataCache;
     private Timer dataPollTimer;
 
@@ -97,27 +103,46 @@ public class LiveMapClientMod {
     /**
      * Fired when the server advertises its HTTP endpoint via ModComm. This is
      * the normal path on login — world-load may race ahead of it.
+     *
+     * <p>Reconnect-safe: if the URI differs from what we already initialized
+     * with, the {@link MapHttpClient} is rebuilt. The framework HTTP subsystem
+     * defaults to {@code serverPort=0} (ephemeral), so every server boot picks
+     * a different port — without this, reconnecting after a server restart
+     * would leave the client polling a dead port until the entire client
+     * process is restarted.
      */
     @SubscribeEvent
     public void onServerInfoAvailable(ServerInfoAvailableEvent event) {
-        if (initialized) {
+        String newUri = event.getHttpUri();
+        if (initialized && newUri != null && newUri.equals(httpClientUrl)) {
+            logger.fine("[LiveMap] ServerInfo unchanged (" + newUri + "), keeping existing client");
             return;
         }
-        logger.info("[LiveMap] Server info received: httpUri=" + event.getHttpUri()
-            + ", modloader=" + event.getModloaderVersion());
-        initializeHttpClient(event.getHttpUri());
+        if (initialized) {
+            logger.info("[LiveMap] Server info changed: " + httpClientUrl + " -> " + newUri
+                + " (rebuilding HTTP client)");
+        } else {
+            logger.info("[LiveMap] Server info received: httpUri=" + newUri
+                + ", modloader=" + event.getModloaderVersion());
+        }
+        initializeHttpClient(newUri);
     }
 
     private synchronized void initializeHttpClient(String serverUrl) {
-        if (initialized) {
-            return;
-        }
         if (serverUrl == null || serverUrl.isEmpty()) {
             logger.warning("[LiveMap] Server did not expose an HTTP URI — live map disabled");
             return;
         }
+        // Idempotent on identical URI; rebuild on change so a reconnected client
+        // tracks the new ephemeral port.
+        if (initialized && serverUrl.equals(httpClientUrl)) {
+            return;
+        }
         try {
+            // Drop any stale poller before swapping the client out.
+            stopDataPolling();
             httpClient = new MapHttpClient(serverUrl);
+            httpClientUrl = serverUrl;
             if (dataCache == null) {
                 dataCache = new MapDataCache(TILE_CACHE_TTL_MS, DATA_CACHE_TTL_MS);
             }
@@ -130,6 +155,10 @@ public class LiveMapClientMod {
                 initialized = true;
             } else {
                 logger.warning("[LiveMap] Server does not support live map API");
+                // Keep the client around so a future ServerInfo update on the
+                // same URI doesn't get ignored — but stay un-initialized so a
+                // different URI can still drive re-init.
+                initialized = false;
             }
         } catch (Exception e) {
             logger.warning("[LiveMap] Failed to initialize: " + e.getMessage());

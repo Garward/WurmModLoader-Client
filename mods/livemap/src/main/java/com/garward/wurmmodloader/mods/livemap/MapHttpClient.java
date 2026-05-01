@@ -2,11 +2,17 @@ package com.garward.wurmmodloader.mods.livemap;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.ConnectException;
 import java.net.HttpURLConnection;
+import java.net.NoRouteToHostException;
+import java.net.SocketTimeoutException;
 import java.net.URL;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -32,8 +38,18 @@ public class MapHttpClient {
 
     private static final Logger logger = Logger.getLogger(MapHttpClient.class.getName());
     private static final int TIMEOUT_MS = 5000; // 5 second timeout
+    /** Rate-limit window for repeated unreachable-server warnings. */
+    private static final long FAILURE_LOG_INTERVAL_MS = 60_000L;
 
     private final String serverUrl;
+
+    /** Rolling count of consecutive unreachable-server failures (any endpoint).
+     *  Reset to zero on the first successful fetch. */
+    private final AtomicInteger consecutiveFailures = new AtomicInteger();
+    /** Wall-clock millis of the last time we emitted a WARNING for a transport
+     *  failure. Used together with {@link #consecutiveFailures} to collapse a
+     *  burst of identical ConnectExceptions into one log line per minute. */
+    private volatile long lastFailureLogMs = 0L;
 
     public MapHttpClient(String serverUrl) {
         this.serverUrl = serverUrl.endsWith("/") ? serverUrl.substring(0, serverUrl.length() - 1) : serverUrl;
@@ -196,8 +212,12 @@ public class MapHttpClient {
                 result.append(line);
             }
 
+            onFetchSuccess();
             return result.toString();
 
+        } catch (IOException e) {
+            handleFetchFailure(urlString, e);
+            return null;
         } catch (Exception e) {
             logger.log(Level.WARNING, "[LiveMap] Error fetching: " + urlString, e);
             return null;
@@ -235,8 +255,12 @@ public class MapHttpClient {
                 buffer.write(chunk, 0, bytesRead);
             }
 
+            onFetchSuccess();
             return buffer.toByteArray();
 
+        } catch (IOException e) {
+            handleFetchFailure(urlString, e);
+            return null;
         } catch (Exception e) {
             logger.log(Level.WARNING, "[LiveMap] Error fetching: " + urlString, e);
             return null;
@@ -244,6 +268,51 @@ public class MapHttpClient {
             if (conn != null) {
                 conn.disconnect();
             }
+        }
+    }
+
+    /**
+     * Collapse repeated transport failures into a single rate-limited WARNING.
+     *
+     * <p>Without this, a server outage produces a multi-line stack trace per
+     * call — and the data poll fires three calls every 15 s while the tile
+     * fetcher fires more per render frame, so a single outage trivially fills
+     * the client log with thousands of identical {@code Connection refused}
+     * stacks until the user closes and rejoins.
+     *
+     * <p>Strategy: log the first failure and then at most one summary every
+     * {@link #FAILURE_LOG_INTERVAL_MS}; everything in between is dropped to
+     * {@code FINE}. Counter is reset by {@link #onFetchSuccess()} so recovery
+     * is also reported once.
+     */
+    private void handleFetchFailure(String urlString, IOException e) {
+        boolean transport = e instanceof ConnectException
+                         || e instanceof SocketTimeoutException
+                         || e instanceof UnknownHostException
+                         || e instanceof NoRouteToHostException;
+        if (!transport) {
+            logger.log(Level.WARNING, "[LiveMap] Error fetching: " + urlString, e);
+            return;
+        }
+
+        int failuresSoFar = consecutiveFailures.incrementAndGet();
+        long now = System.currentTimeMillis();
+        long sinceLastLog = now - lastFailureLogMs;
+
+        if (failuresSoFar == 1 || sinceLastLog > FAILURE_LOG_INTERVAL_MS) {
+            lastFailureLogMs = now;
+            logger.warning("[LiveMap] Server unreachable (" + e.getClass().getSimpleName()
+                    + ": " + e.getMessage() + ") at " + serverUrl
+                    + " — suppressing repeats. Total failures: " + failuresSoFar);
+        } else {
+            logger.fine("[LiveMap] fetch failed (" + e.getClass().getSimpleName() + ") for " + urlString);
+        }
+    }
+
+    private void onFetchSuccess() {
+        int prev = consecutiveFailures.getAndSet(0);
+        if (prev > 0) {
+            logger.info("[LiveMap] Server reachable again after " + prev + " failed attempts");
         }
     }
 }

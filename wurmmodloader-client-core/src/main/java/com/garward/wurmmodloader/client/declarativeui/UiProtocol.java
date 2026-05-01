@@ -49,6 +49,8 @@ public final class UiProtocol {
     public static final String W_IMAGE      = "Image";
     public static final String W_BLIP       = "Blip";
     public static final String W_VIEWPORT   = "Viewport";
+    public static final String W_FRAME      = "Frame";
+    public static final String W_HALO       = "Halo";
 
     // 4096 leaves headroom for PoE-tier ~1300-node skill trees.
     public static final int MAX_TREE_DEPTH = 16;

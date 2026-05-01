@@ -22,6 +22,8 @@ import com.garward.wurmmodloader.client.core.bytecode.patches.WorldRenderPatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.gui.FlexComponentAccessPatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.gui.GuiClassWideningPatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.gui.WurmComponentAccessPatch;
+import com.garward.wurmmodloader.client.core.bytecode.patches.serverpacks.IconLoaderGetIconGuardPatch;
+import com.garward.wurmmodloader.client.core.bytecode.patches.serverpacks.IconLoaderMergePatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.serverpacks.PackGetResourceCrossPackPatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.serverpacks.PackInitVirtualPacksPatch;
 import com.garward.wurmmodloader.client.core.bytecode.patches.serverpacks.PackResourceUrlDeriveCrossPackPatch;
@@ -180,6 +182,11 @@ public class CorePatches {
         PatchRegistry.register(new PackInitVirtualPacksPatch());
         PatchRegistry.register(new PackGetResourceCrossPackPatch());
         PatchRegistry.register(new PackResourceUrlDeriveCrossPackPatch());
+        // IconLoader merge — composites iconsheets across every pack that ships
+        // one. Without this, an overlay pack at the front of the chain wipes
+        // every vanilla icon it didn't redraw.
+        PatchRegistry.register(new IconLoaderMergePatch());
+        PatchRegistry.register(new IconLoaderGetIconGuardPatch());
 
         // Widen the rest of the GUI toolkit so mods can extend widgets directly.
         // Add new classes here when a mod hits "not public in com.wurmonline.client.renderer.gui".

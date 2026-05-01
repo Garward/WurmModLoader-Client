@@ -1,4 +1,4 @@
-package com.garward.mods.serverpacks;
+package com.garward.wurmmodloader.client.serverpacks;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -21,7 +21,7 @@ import java.util.logging.Logger;
  *   <li>Resumable downloads — if a prior attempt left a {@code .part} file,
  *       reopens with an HTTP {@code Range} header and appends. A 200 response
  *       (server ignored the range) falls back to a fresh download.</li>
- *   <li>Progress reporting via {@link ServerPacksClientMod#consoleOutput} at
+ *   <li>Progress reporting via {@link ServerPacksClientService#consoleOutput} at
  *       ~10% or 1 MiB intervals (whichever is sparser). If the server sends no
  *       {@code Content-Length} and no expectedSize was provided, reports raw
  *       byte counts.</li>
@@ -61,7 +61,6 @@ public class PackDownloader implements Runnable {
 
             long existing = Files.isRegularFile(partFile) ? Files.size(partFile) : 0L;
             if (expectedSize > 0 && existing >= expectedSize) {
-                // Stale .part from a prior run — start over.
                 Files.deleteIfExists(partFile);
                 existing = 0L;
             }
@@ -77,7 +76,7 @@ public class PackDownloader implements Runnable {
             boolean append;
             if (status == HttpURLConnection.HTTP_PARTIAL) {
                 append = true;
-                ServerPacksClientMod.consoleOutput(
+                ServerPacksClientService.consoleOutput(
                         String.format("[ServerPacks] Resuming %s at %s", packId, formatBytes(existing)));
             } else if (status == HttpURLConnection.HTTP_OK) {
                 append = false;
@@ -113,14 +112,14 @@ public class PackDownloader implements Runnable {
                     if (total > 0) {
                         int pct = (int) (downloaded * 100L / total);
                         if (pct >= nextPctMark && downloaded >= nextByteMark) {
-                            ServerPacksClientMod.consoleOutput(String.format(
+                            ServerPacksClientService.consoleOutput(String.format(
                                     "[ServerPacks] %s: %d%% (%s / %s)",
                                     packId, pct, formatBytes(downloaded), formatBytes(total)));
                             nextPctMark = pct + 10;
                             nextByteMark = downloaded + PROGRESS_BYTE_STEP;
                         }
                     } else if (downloaded >= nextByteMark) {
-                        ServerPacksClientMod.consoleOutput(String.format(
+                        ServerPacksClientService.consoleOutput(String.format(
                                 "[ServerPacks] %s: %s downloaded", packId, formatBytes(downloaded)));
                         nextByteMark = downloaded + PROGRESS_BYTE_STEP;
                     }
@@ -136,7 +135,7 @@ public class PackDownloader implements Runnable {
 
             Path tmpName = Paths.get("packs", packId + ".tmp");
             Files.move(partFile, tmpName, StandardCopyOption.REPLACE_EXISTING);
-            ServerPacksClientMod.consoleOutput(String.format(
+            ServerPacksClientService.consoleOutput(String.format(
                     "[ServerPacks] %s: download complete (%s)", packId, formatBytes(Files.size(tmpName))));
 
             handler.onComplete(packId, tmpName);

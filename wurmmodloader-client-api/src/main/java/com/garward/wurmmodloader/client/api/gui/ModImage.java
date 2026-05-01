@@ -92,14 +92,7 @@ public class ModImage extends ModComponent {
         int slash = spec.indexOf('/');
         if (slash <= 0) return true; // malformed; let load attempt log the error
         String packId = spec.substring(0, slash);
-        try {
-            Class<?> resolver = Class.forName("com.garward.mods.serverpacks.api.PackAssetResolver");
-            return (boolean) resolver.getMethod("isPackReady", String.class).invoke(null, packId);
-        } catch (ClassNotFoundException e) {
-            return true; // serverpacks not installed; let openStream produce a clean error
-        } catch (Exception e) {
-            return true;
-        }
+        return com.garward.wurmmodloader.client.api.serverpacks.PackAssetResolver.isPackReady(packId);
     }
 
     private static synchronized ImageTexture loadTexture(String uri, Class<?> anchor) {
@@ -158,18 +151,7 @@ public class ModImage extends ModComponent {
             }
             String packId = spec.substring(0, slash);
             String relPath = spec.substring(slash + 1);
-            try {
-                Class<?> resolver = Class.forName("com.garward.mods.serverpacks.api.PackAssetResolver");
-                return (InputStream) resolver
-                        .getMethod("openStream", String.class, String.class)
-                        .invoke(null, packId, relPath);
-            } catch (ClassNotFoundException e) {
-                logger.warning("[ModImage] pack: scheme requires the serverpacks mod (not loaded): " + uri);
-                return null;
-            } catch (java.lang.reflect.InvocationTargetException e) {
-                Throwable cause = e.getCause() != null ? e.getCause() : e;
-                throw new Exception("PackAssetResolver failed for " + uri, cause);
-            }
+            return com.garward.wurmmodloader.client.api.serverpacks.PackAssetResolver.openStream(packId, relPath);
         }
         // Short form → declarativeui's bundled images dir. Resolve through the
         // anchor's classloader (typically a mod's class) — ModImage itself

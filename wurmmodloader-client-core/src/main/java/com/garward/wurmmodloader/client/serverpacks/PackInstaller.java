@@ -1,4 +1,4 @@
-package com.garward.mods.serverpacks;
+package com.garward.wurmmodloader.client.serverpacks;
 
 import com.wurmonline.client.WurmClientBase;
 import com.wurmonline.client.renderer.ItemColorsXml;
@@ -9,12 +9,18 @@ import com.wurmonline.client.resources.Resources;
 import com.wurmonline.client.resources.ResourceUrl;
 import com.wurmonline.client.resources.textures.IconLoader;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +30,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -50,12 +57,8 @@ final class PackInstaller {
     private static Class<?> packResourceUrlClass;
     private static Field packResourceUrlPack;
 
-    // absolute-path → JarPack instance; used by closePack() to undo add.
     private static final Map<String, Object> addedPacks = new ConcurrentHashMap<>();
 
-    // Debounce reloadResources() — a burst of packs arriving back-to-back
-    // would otherwise call IconLoader.clear() once per pack, blowing the GL
-    // texture cache N times and stalling the render thread.
     private static final ScheduledExecutorService reloadScheduler =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "PackInstaller-reload");
@@ -88,7 +91,7 @@ final class PackInstaller {
         packResourceUrlPack = packResourceUrlClass.getDeclaredField("pack");
         packResourceUrlPack.setAccessible(true);
 
-        ServerPacksClientMod.consoleOutput("[ServerPacks] reflection cache primed");
+        ServerPacksClientService.consoleOutput("[ServerPacks] reflection cache primed");
     }
 
     static void enableDownloadedPack(String packId, URL packUrl, Path packFile) {
@@ -106,17 +109,29 @@ final class PackInstaller {
             @SuppressWarnings("unchecked")
             List<Object> packs = (List<Object>) resourcesPacks.get(resources);
 
-            boolean prepend = packUrl != null && packUrl.getQuery() != null
-                    && (packUrl.getQuery().contains("prepend=true") || packUrl.getQuery().contains("prepend=1"));
+            boolean prepend = hasFlag(packUrl, "prepend");
 
+            int positionAdded;
+            int totalAfter;
             synchronized (resources) {
-                if (prepend) packs.add(0, jarPack);
-                else packs.add(jarPack);
+                if (prepend) {
+                    packs.add(0, jarPack);
+                    positionAdded = 0;
+                } else {
+                    positionAdded = packs.size();
+                    packs.add(jarPack);
+                }
+                totalAfter = packs.size();
                 reloadPacks(resources);
             }
 
             addedPacks.put(file.getAbsoluteFile().toString(), jarPack);
-            logger.info(String.format("[PackInstaller] Added server pack %s (%s)", packId, file.getName()));
+            String query = (packUrl != null && packUrl.getQuery() != null) ? packUrl.getQuery() : "";
+            String mappingSummary = summariseJarMappings(file);
+            logger.info(String.format(
+                "[PackInstaller] Added pack %s (file=%s) query=[%s] prepend=%s position=%d/%d %s",
+                packId, file.getName(), query, prepend, positionAdded, totalAfter, mappingSummary));
+            logPackOrder();
 
             scheduleReloadResources();
         } catch (Throwable t) {
@@ -126,7 +141,7 @@ final class PackInstaller {
 
     static void closePack(Path packFile) {
         try {
-            if (resourcesPacks == null) return; // not initialized yet
+            if (resourcesPacks == null) return;
             File file = packFile.toFile();
             Object jarPack = addedPacks.remove(file.getAbsoluteFile().toString());
             if (jarPack == null) return;
@@ -157,12 +172,6 @@ final class PackInstaller {
         }
     }
 
-    /**
-     * Force-reload: clear resolved/unresolved caches, re-resolve every key,
-     * then reload XML-driven subsystems (particles, item colors, tiles,
-     * terrain). Useful after a batch of server packs finishes downloading
-     * late and the world has already rendered with fallbacks.
-     */
     static void reloadAll() {
         try {
             Resources resources = WurmClientBase.getResourceManager();
@@ -171,20 +180,12 @@ final class PackInstaller {
                 reloadPacks(resources);
             }
             reloadResources();
-            ServerPacksClientMod.consoleOutput("[ServerPacks] manual reload complete");
+            ServerPacksClientService.consoleOutput("[ServerPacks] manual reload complete");
         } catch (Throwable t) {
             logger.log(Level.WARNING, "[PackInstaller] reloadAll failed", t);
         }
     }
 
-    /**
-     * Coalesce reload calls inside a 1.5 s window. Multiple packs arriving
-     * back-to-back during login/handshake would otherwise call
-     * {@link IconLoader#clear()} per pack, forcing the render thread to
-     * re-upload every visible icon as a GL texture each time and stalling
-     * the client. The latest call wins; resources reload once after the
-     * burst settles.
-     */
     private static synchronized void scheduleReloadResources() {
         if (pendingReload != null) pendingReload.cancel(false);
         pendingReload = reloadScheduler.schedule(() -> {
@@ -193,13 +194,47 @@ final class PackInstaller {
         }, 1500, TimeUnit.MILLISECONDS);
     }
 
+    static void dumpIconSheets() {
+        try {
+            Class<?> iconConstants = Class.forName("com.wurmonline.shared.constants.IconConstants");
+            String[] sheetKeys = (String[]) iconConstants.getField("ICON_SHEET_FILE_NAMES").get(null);
+            Resources resources = WurmClientBase.getResourceManager();
+            if (resources == null) {
+                logger.warning("[PackInstaller] dumpIconSheets: no resource manager");
+                return;
+            }
+            StringBuilder sb = new StringBuilder("[PackInstaller] icon sheet resolution:");
+            for (String key : sheetKeys) {
+                ResourceUrl url = resources.getResource(key);
+                String owner = "UNRESOLVED";
+                if (url != null) {
+                    if (packResourceUrlClass.isInstance(url)) {
+                        Object pack = packResourceUrlPack.get(url);
+                        if (jarPackClass.isInstance(pack)) {
+                            JarFile jf = (JarFile) jarPackJarFile.get(pack);
+                            owner = jf != null ? new File(jf.getName()).getName() : "?jar";
+                        } else if (pack != null) {
+                            owner = pack.getClass().getSimpleName();
+                        }
+                    } else {
+                        owner = url.getClass().getSimpleName();
+                    }
+                }
+                sb.append("\n  ").append(key).append(" → ").append(owner);
+            }
+            logger.info(sb.toString());
+        } catch (Throwable t) {
+            logger.log(Level.WARNING, "[PackInstaller] dumpIconSheets failed", t);
+        }
+    }
+
     static void dumpPacks() {
         try {
             Resources resources = WurmClientBase.getResourceManager();
             if (resources == null) { logger.warning("[PackInstaller] no resource manager"); return; }
             @SuppressWarnings("unchecked")
             List<Object> packs = (List<Object>) resourcesPacks.get(resources);
-            ServerPacksClientMod.consoleOutput("[ServerPacks] " + packs.size() + " packs (lookup order):");
+            ServerPacksClientService.consoleOutput("[ServerPacks] " + packs.size() + " packs (lookup order):");
             int i = 0;
             for (Object p : packs) {
                 String jar = "";
@@ -209,7 +244,7 @@ final class PackInstaller {
                         if (jf != null) jar = " jar=" + jf.getName();
                     }
                 } catch (Throwable ignored) {}
-                ServerPacksClientMod.consoleOutput("  [" + (i++) + "] " + p.getClass().getSimpleName() + jar);
+                ServerPacksClientService.consoleOutput("  [" + (i++) + "] " + p.getClass().getSimpleName() + jar);
             }
         } catch (Throwable t) {
             logger.log(Level.WARNING, "[PackInstaller] dumpPacks failed", t);
@@ -220,16 +255,16 @@ final class PackInstaller {
         try {
             Resources resources = WurmClientBase.getResourceManager();
             if (resources == null) { logger.warning("[PackInstaller] no resource manager"); return; }
-            ServerPacksClientMod.consoleOutput("[ServerPacks] probe key=" + key);
+            ServerPacksClientService.consoleOutput("[ServerPacks] probe key=" + key);
             try {
                 Method getAllState = Resources.class.getMethod("getAllState", String.class);
                 getAllState.invoke(resources, key);
             } catch (NoSuchMethodException nsme) {
-                ServerPacksClientMod.consoleOutput("[ServerPacks] getAllState missing, falling back to getResource");
+                ServerPacksClientService.consoleOutput("[ServerPacks] getAllState missing, falling back to getResource");
             }
             ResourceUrl url = resources.getResource(key);
             if (url == null) {
-                ServerPacksClientMod.consoleOutput("[ServerPacks]   → unresolved (no pack owns '" + key + "')");
+                ServerPacksClientService.consoleOutput("[ServerPacks]   → unresolved (no pack owns '" + key + "')");
                 return;
             }
             String owner = "unknown";
@@ -244,7 +279,7 @@ final class PackInstaller {
             } else {
                 owner = url.getClass().getSimpleName();
             }
-            ServerPacksClientMod.consoleOutput("[ServerPacks]   → " + url + " (owner=" + owner + ")");
+            ServerPacksClientService.consoleOutput("[ServerPacks]   → " + url + " (owner=" + owner + ")");
         } catch (Throwable t) {
             logger.log(Level.WARNING, "[PackInstaller] probe failed", t);
         }
@@ -269,12 +304,92 @@ final class PackInstaller {
         try { ItemColorsXml.reloadItemColors(getWorld()); } catch (Throwable t) { logger.log(Level.FINE, "item colors reload", t); }
         try { TilePropertiesXml.reloadTiles(); } catch (Throwable t) { logger.log(Level.FINE, "tiles reload", t); }
         try { TerrainTexture.reloadNormalMaps(); } catch (Throwable t) { logger.log(Level.FINE, "terrain reload", t); }
-        // Re-read icon sheets (img.iconsheet.*) so the next getIcon() call slices
-        // from the new pack's PNGs. Covers both framework graphics.jar replacements
-        // and Ago-style iconzz-pack.jar deliveries — both ship sheet PNGs + a
-        // mappings.txt entry for img.iconsheet.icons et al.
         try { IconLoader.clear(); IconLoader.initIcons(); }
         catch (Throwable t) { logger.log(Level.FINE, "icons reload", t); }
+        dumpIconSheets();
+    }
+
+    private static String summariseJarMappings(File file) {
+        if (file == null || !file.isFile()) return "(no file)";
+        int entries = 0;
+        List<String> mappingLines = new ArrayList<>();
+        List<String> topLevelResources = new ArrayList<>();
+        try (JarFile jf = new JarFile(file)) {
+            Enumeration<JarEntry> en = jf.entries();
+            while (en.hasMoreElements()) {
+                JarEntry e = en.nextElement();
+                if (e.isDirectory()) continue;
+                entries++;
+                String name = e.getName();
+                if ("mappings.txt".equals(name) && mappingLines.isEmpty()) {
+                    try (InputStream is = jf.getInputStream(e);
+                         BufferedReader br = new BufferedReader(
+                                 new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = br.readLine()) != null && mappingLines.size() < 8) {
+                            String trimmed = line.trim();
+                            if (!trimmed.isEmpty() && !trimmed.startsWith("#")) {
+                                mappingLines.add(trimmed);
+                            }
+                        }
+                    }
+                } else if (!name.contains("/") && topLevelResources.size() < 6) {
+                    topLevelResources.add(name);
+                }
+            }
+        } catch (Throwable t) {
+            return "(read failed: " + t.getClass().getSimpleName() + ")";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("entries=").append(entries);
+        if (!topLevelResources.isEmpty()) {
+            sb.append(" top=").append(topLevelResources);
+        }
+        if (!mappingLines.isEmpty()) {
+            sb.append(" mappings=").append(mappingLines.size())
+              .append(mappingLines.size() >= 8 ? "+" : "")
+              .append(mappingLines);
+        }
+        return sb.toString();
+    }
+
+    private static void logPackOrder() {
+        try {
+            Resources resources = WurmClientBase.getResourceManager();
+            if (resources == null) return;
+            @SuppressWarnings("unchecked")
+            List<Object> packs = (List<Object>) resourcesPacks.get(resources);
+            StringBuilder sb = new StringBuilder("[PackInstaller] lookup order (")
+                    .append(packs.size()).append(" packs):");
+            int i = 0;
+            for (Object p : packs) {
+                sb.append("\n  [").append(i++).append("] ");
+                if (jarPackClass.isInstance(p)) {
+                    JarFile jf = (JarFile) jarPackJarFile.get(p);
+                    sb.append(jf != null ? new File(jf.getName()).getName() : "?");
+                } else {
+                    sb.append(p.getClass().getSimpleName());
+                }
+            }
+            logger.info(sb.toString());
+        } catch (Throwable t) {
+            logger.log(Level.FINE, "logPackOrder failed", t);
+        }
+    }
+
+    private static boolean hasFlag(URL url, String flag) {
+        if (url == null) return false;
+        String query = url.getQuery();
+        if (query == null || query.isEmpty()) return false;
+        for (String token : query.split("&")) {
+            int eq = token.indexOf('=');
+            String key = eq < 0 ? token : token.substring(0, eq);
+            if (!key.equals(flag)) continue;
+            if (eq < 0) return true;
+            String val = token.substring(eq + 1);
+            return val.equalsIgnoreCase("true") || val.equals("1");
+        }
+        return false;
     }
 
     private static com.wurmonline.client.game.World getWorld() throws ReflectiveOperationException {

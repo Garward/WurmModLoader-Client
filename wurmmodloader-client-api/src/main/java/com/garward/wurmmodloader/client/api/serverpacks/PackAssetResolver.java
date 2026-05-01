@@ -1,4 +1,4 @@
-package com.garward.mods.serverpacks.api;
+package com.garward.wurmmodloader.client.api.serverpacks;
 
 import java.io.FilterInputStream;
 import java.io.IOException;
@@ -12,14 +12,19 @@ import java.util.jar.JarFile;
 /**
  * Public lookup API for assets inside server-pushed pack jars.
  *
- * <p>Peer client mods (e.g. declarativeui's ModImage with the {@code pack:} URI
- * scheme) call this to resolve {@code packId + relativePath} into an
- * {@link InputStream} from the local pack cache, without taking a hard
- * compile-time dependency on serverpacks internals.
+ * <p>Peer client code (e.g. {@code ModIconAtlasStore}, declarativeui's
+ * {@code ModImage} with the {@code pack:} URI scheme) calls this to resolve
+ * {@code packId + relativePath} into an {@link InputStream} from the local
+ * pack cache.
  *
  * <p>Cache layout: pack jars land at {@code packs/<packId>.jar} (atomically
  * moved into place after download), so the file's existence is the readiness
  * signal — no callback registry needed.
+ *
+ * <p>This used to live in the serverpacks mod jar and was reached by
+ * cross-classloader {@code Class.forName(...)} from framework code, which
+ * silently failed when called from non-mod threads (timers, schedulers).
+ * Promotion into the framework removes the classloader hop.
  */
 public final class PackAssetResolver {
 

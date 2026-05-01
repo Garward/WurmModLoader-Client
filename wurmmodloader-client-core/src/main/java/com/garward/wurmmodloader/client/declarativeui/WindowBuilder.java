@@ -7,6 +7,8 @@ import com.garward.wurmmodloader.client.api.gui.ModButton;
 import com.garward.wurmmodloader.client.api.gui.ModCanvas;
 import com.garward.wurmmodloader.client.api.gui.ModComponent;
 import com.garward.wurmmodloader.client.api.gui.ModEdge;
+import com.garward.wurmmodloader.client.api.gui.ModFrame;
+import com.garward.wurmmodloader.client.api.gui.ModHalo;
 import com.garward.wurmmodloader.client.api.gui.ModImage;
 import com.garward.wurmmodloader.client.api.gui.ModLabel;
 import com.garward.wurmmodloader.client.api.gui.ModStackPanel;
@@ -52,13 +54,15 @@ final class WindowBuilder {
     }
 
     // Tooltip prop wins over the legacy `hover` prop on Buttons. ModComponent
-    // routes through our setHoverText override; vanilla WButton subclasses use
+    // and ModFrame both expose setHoverText; vanilla WButton subclasses use
     // the engine's own setHoverString slot.
     private static void applyTooltip(WidgetNode node, FlexComponent c) {
         String tip = node.props.get("tooltip");
         if (tip == null || tip.isEmpty()) return;
         if (c instanceof ModComponent) {
             ((ModComponent) c).setHoverText(tip);
+        } else if (c instanceof ModFrame) {
+            ((ModFrame) c).setHoverText(tip);
         } else if (c instanceof WButton) {
             ((WButton) c).setHoverString(tip);
         }
@@ -161,20 +165,73 @@ final class WindowBuilder {
                 int y2 = node.propInt("y2", 0);
                 int thickness = node.propInt("thickness", 2);
                 float[] rgba = parseColor(node.prop("color", "1,1,1,1"));
-                return new ModEdge(x1, y1, x2, y2, thickness, rgba[0], rgba[1], rgba[2], rgba[3]);
+                int glowThickness = node.propInt("glowThickness", 0);
+                if (glowThickness <= 0) {
+                    return new ModEdge(x1, y1, x2, y2, thickness,
+                            rgba[0], rgba[1], rgba[2], rgba[3]);
+                }
+                float[] glow = parseColor(node.prop("glow", "1,1,1,0.4"));
+                return new ModEdge(x1, y1, x2, y2, thickness,
+                        rgba[0], rgba[1], rgba[2], rgba[3],
+                        glowThickness,
+                        glow[0], glow[1], glow[2], glow[3]);
+            }
+            case UiProtocol.W_FRAME: {
+                int fw = node.propInt("width", 64);
+                int fh = node.propInt("height", 64);
+                int border = node.propInt("borderThickness", 2);
+                ModFrame.Shape shape = "circle".equalsIgnoreCase(node.prop("shape", "square"))
+                        ? ModFrame.Shape.CIRCLE
+                        : ModFrame.Shape.SQUARE;
+                float[] bg = parseColor(node.prop("bg", "0,0,0,0"));
+                float[] outline = parseColor(node.prop("outline", "1,1,1,1"));
+                ModFrame frame = new ModFrame(shape, fw, fh, border,
+                        bg[0], bg[1], bg[2], bg[3],
+                        outline[0], outline[1], outline[2], outline[3]);
+                final String action = node.prop("action", "");
+                if (!action.isEmpty()) {
+                    frame.onClick(() -> actionSender.accept(action));
+                }
+                // Frames hold a single child — first build child wins, others
+                // are dropped with a warning so a malformed payload is loud.
+                FlexComponent only = null;
+                for (WidgetNode child : node.children) {
+                    FlexComponent c = buildNode(child, mw, actionSender);
+                    if (c == null) continue;
+                    if (only == null) {
+                        only = c;
+                    } else {
+                        logger.warning("[DeclarativeUI] Frame ignoring extra child of type "
+                                + child.type + " (frames hold one child)");
+                    }
+                }
+                if (only != null) frame.setChild(only);
+                return frame;
+            }
+            case UiProtocol.W_HALO: {
+                int diameter = node.propInt("diameter", 48);
+                float[] color = parseColor(node.prop("color", "1,1,1,0.6"));
+                return new ModHalo(diameter, color[0], color[1], color[2], color[3]);
             }
             case UiProtocol.W_BLIP: {
                 int diameter = node.propInt("diameter", 12);
                 float[] fill = parseColor(node.prop("fill", "1,1,1,1"));
                 int outlineThickness = node.propInt("outlineThickness", 0);
+                ModBlip blip;
                 if (outlineThickness > 0) {
                     float[] outline = parseColor(node.prop("outline", "0,0,0,1"));
-                    return new ModBlip(diameter,
+                    blip = new ModBlip(diameter,
                             fill[0], fill[1], fill[2], fill[3],
                             outlineThickness,
                             outline[0], outline[1], outline[2], outline[3]);
+                } else {
+                    blip = new ModBlip(diameter, fill[0], fill[1], fill[2], fill[3]);
                 }
-                return new ModBlip(diameter, fill[0], fill[1], fill[2], fill[3]);
+                final String action = node.prop("action", "");
+                if (!action.isEmpty()) {
+                    blip.onClick(() -> actionSender.accept(action));
+                }
+                return blip;
             }
             default:
                 logger.warning("[DeclarativeUI] unknown widget type: " + node.type);
@@ -200,16 +257,28 @@ final class WindowBuilder {
             int x2 = child.propInt("x2", 0);
             int y2 = child.propInt("y2", 0);
             int t  = child.propInt("thickness", 2);
-            cx = ModEdge.boxX(x1, x2, t);
-            cy = ModEdge.boxY(y1, y2, t);
-            if (cwc < 0) cwc = ModEdge.boxWidth(x1, x2, t);
-            if (chc < 0) chc = ModEdge.boxHeight(y1, y2, t);
-        } else if (c instanceof ModBlip) {
+            int gt = child.propInt("glowThickness", 0);
+            int outer = Math.max(t, gt);
+            cx = ModEdge.boxX(x1, x2, outer);
+            cy = ModEdge.boxY(y1, y2, outer);
+            if (cwc < 0) cwc = ModEdge.boxWidth(x1, x2, outer);
+            if (chc < 0) chc = ModEdge.boxHeight(y1, y2, outer);
+        } else if (c instanceof ModBlip || c instanceof ModHalo) {
             int d = child.propInt("diameter", 12);
             cx -= d / 2;
             cy -= d / 2;
             if (cwc < 0) cwc = d;
             if (chc < 0) chc = d;
+        } else if (c instanceof ModFrame) {
+            // Frames center on (x, y) when no explicit width/height is given,
+            // mirroring blip placement so a frame and a centered blip can share
+            // the same canvas anchor without manual offset bookkeeping.
+            int fw = child.propInt("width", 64);
+            int fh = child.propInt("height", 64);
+            cx -= fw / 2;
+            cy -= fh / 2;
+            if (cwc < 0) cwc = fw;
+            if (chc < 0) chc = fh;
         } else {
             if (cwc < 0) cwc = 100;
             if (chc < 0) chc = 20;

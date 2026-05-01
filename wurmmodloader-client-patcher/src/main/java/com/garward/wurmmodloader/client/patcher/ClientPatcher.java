@@ -74,7 +74,7 @@ public class ClientPatcher {
      */
     public static void premain(String agentArgs, Instrumentation inst) {
         logger.info("=== WurmModLoader Client Patcher Starting (Agent Mode) ===");
-        logger.info("Version: 0.1.0");
+        logger.info("Version: 0.4.0");
 
         // Initialize the patch system
         initializePatchSystem();
@@ -95,7 +95,7 @@ public class ClientPatcher {
      */
     public static void main(String[] args) {
         logger.info("=== WurmModLoader Client Patcher ===");
-        logger.info("Version: 0.1.0");
+        logger.info("Version: 0.4.0");
         logger.info("");
 
         // Auto-detect Steam installation if no path provided
@@ -398,6 +398,21 @@ public class ClientPatcher {
         addPatch(accessWideningPatches,
             "com/wurmonline/client/resources/PackResourceUrl.class",
             new com.garward.wurmmodloader.client.core.bytecode.patches.serverpacks.PackResourceUrlDeriveCrossPackPatch()
+        );
+        // Iconsheet merge — per-slot composite across the pack chain so
+        // overlay packs (sparse sheets that only redraw a few slots) layer
+        // over vanilla instead of replacing it wholesale.
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/resources/textures/IconLoader.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.serverpacks.IconLoaderMergePatch()
+        );
+        // Defensive bound-check on getIcon — falls back to slot 0 if a
+        // requested icon id maps to a sheet beyond the current array length
+        // (registry not yet synced, vanilla server, etc.) instead of
+        // crashing the GUI with ArrayIndexOutOfBoundsException.
+        addPatch(accessWideningPatches,
+            "com/wurmonline/client/resources/textures/IconLoader.class",
+            new com.garward.wurmmodloader.client.core.bytecode.patches.serverpacks.IconLoaderGetIconGuardPatch()
         );
 
         // Shared ClassPool so patches that reference methods/fields added by
